@@ -1,0 +1,60 @@
+# Remote Smartcard Client Configuration
+# Copy this file to /etc/rsc-client/config.yaml and modify as needed
+
+server:
+  # Server hostname or IP address
+  # MUST match the CN in the server's certificate!
+  host: "your-server.example.com"
+
+  # Server port (default: 8443)
+  port: 8443
+
+tls:
+  # Path to client certificate
+  client_cert: "/etc/rsc-client/certs/client.crt"
+
+  # Path to client private key
+  client_key: "/etc/rsc-client/certs/client.key"
+
+  # Path to CA certificate for server verification
+  ca_cert: "/etc/rsc-client/certs/ca.crt"
+
+  # Verify server certificate (should always be true in production)
+  verify_server: true
+
+client:
+  # Unique client identifier (default: hostname)
+  # client_id: "my-laptop"
+
+  # Filter which readers to forward (empty = forward all readers)
+  # reader_filter:
+  #   - "Yubico"
+  #   - "Gemalto"
+
+  # How often to retry connecting after disconnect
+  reconnect_interval: "5s"
+
+  # Maximum reconnect attempts (0 = infinite)
+  reconnect_max_attempts: 0
+
+  # Maximum backoff time between reconnects
+  # reconnect_backoff_max: "60s"
+
+  # How often to send heartbeat to server
+  heartbeat_interval: "30s"
+
+  # Timeout for individual operations
+  operation_timeout: "10s"
+
+logging:
+  # Log level: error, warn, info, debug, trace
+  level: "info"
+
+  # Log file (optional, logs to stdout if not specified)
+  # file: "/var/log/rsc-client/rsc-client.log"
+
+  # Also log to stdout even when file is specified
+  stdout: true
+
+  # Use JSON format for logs (useful for log aggregation)
+  json: false

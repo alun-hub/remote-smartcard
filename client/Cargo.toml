@@ -1,0 +1,52 @@
+[package]
+name = "rsc-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Remote Smartcard Client - forwards local smartcard to remote server"
+
+[[bin]]
+name = "rsc-client"
+path = "src/main.rs"
+
+[dependencies]
+# Internal
+rsc-common = { path = "../common" }
+
+# gRPC
+tonic.workspace = true
+prost.workspace = true
+
+# Async
+tokio.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true
+
+# TLS
+tokio-rustls.workspace = true
+rustls.workspace = true
+
+# PC/SC
+pcsc = "2.8"
+
+# Config and CLI
+serde.workspace = true
+serde_yaml.workspace = true
+clap.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Utilities
+bytes.workspace = true
+hex.workspace = true
+hostname.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true

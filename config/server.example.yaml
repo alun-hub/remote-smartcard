@@ -1,0 +1,60 @@
+# Remote Smartcard Server Configuration
+# Copy this file to /etc/rsc-server/config.yaml and modify as needed
+
+server:
+  # Address to bind to (0.0.0.0 = all interfaces)
+  bind_address: "0.0.0.0"
+
+  # Port to listen on
+  port: 8443
+
+  # Maximum number of simultaneous clients
+  max_clients: 100
+
+tls:
+  # Path to server certificate
+  server_cert: "/etc/rsc-server/certs/server.crt"
+
+  # Path to server private key
+  server_key: "/etc/rsc-server/certs/server.key"
+
+  # Path to CA certificate for client verification
+  ca_cert: "/etc/rsc-server/certs/ca.crt"
+
+  # Require client certificate (mTLS) - should always be true
+  require_client_cert: true
+
+  # Minimum TLS version (1.3 recommended)
+  min_tls_version: "1.3"
+
+vpcd:
+  # Path to vpcd binary
+  binary: "/usr/local/bin/vpcd"
+
+  # Directory for vpcd sockets
+  socket_dir: "/var/run/rsc-server/vpcd"
+
+  # Timeout for vpcd operations
+  timeout: "30s"
+
+  # Port range for vpcd instances (one port per client)
+  port_range_start: 35963
+  port_range_end: 36963
+
+logging:
+  # Log level: error, warn, info, debug, trace
+  level: "info"
+
+  # Log file (optional)
+  # file: "/var/log/rsc-server/rsc-server.log"
+
+  # Also log to stdout
+  stdout: true
+
+  # Use JSON format for logs
+  json: false
+
+# Optional: Prometheus metrics endpoint
+# metrics:
+#   enabled: false
+#   prometheus_port: 9090

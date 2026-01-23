@@ -1,0 +1,15 @@
+[package]
+name = "rsc-keygen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Certificate generation tool for Remote Smartcard"
+
+[[bin]]
+name = "rsc-keygen"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
