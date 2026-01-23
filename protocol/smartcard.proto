@@ -1,0 +1,364 @@
+syntax = "proto3";
+
+package rsc;
+
+// Remote Smartcard Service
+// Allows forwarding PC/SC smartcard operations over the network
+service RemoteSmartcard {
+  // Establish connection and retrieve available readers
+  rpc Connect(ConnectRequest) returns (ConnectResponse);
+
+  // Stream card events (insertion, removal, reader changes)
+  rpc StreamCardEvents(StreamRequest) returns (stream CardEvent);
+
+  // List available readers and their status
+  rpc ListReaders(ListReadersRequest) returns (ListReadersResponse);
+
+  // Connect to a specific card/reader
+  rpc CardConnect(CardConnectRequest) returns (CardConnectResponse);
+
+  // Disconnect from card
+  rpc CardDisconnect(CardDisconnectRequest) returns (CardDisconnectResponse);
+
+  // Transmit APDU to card
+  rpc Transmit(TransmitRequest) returns (TransmitResponse);
+
+  // Get card status
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // Control command (for reader-specific commands)
+  rpc Control(ControlRequest) returns (ControlResponse);
+
+  // Heartbeat to keep connection alive
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Get server capabilities
+  rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+}
+
+// ============================================================================
+// Connection Management
+// ============================================================================
+
+message ConnectRequest {
+  // Client identifier (hostname, UUID, etc)
+  string client_id = 1;
+
+  // Client software version
+  string client_version = 2;
+
+  // Protocol version supported by client
+  uint32 protocol_version = 3;
+
+  // Client capabilities
+  ClientCapabilities capabilities = 4;
+}
+
+message ClientCapabilities {
+  // Maximum APDU size client can handle
+  uint32 max_apdu_size = 1;
+
+  // Supported protocols (T=0, T=1)
+  repeated string supported_protocols = 2;
+
+  // Support for extended APDU
+  bool extended_apdu = 3;
+}
+
+message ConnectResponse {
+  // Unique session identifier
+  string session_id = 1;
+
+  // Server version
+  string server_version = 2;
+
+  // Protocol version used for this session
+  uint32 protocol_version = 3;
+
+  // Initial list of readers
+  repeated Reader readers = 4;
+
+  // Server capabilities
+  ServerCapabilities capabilities = 5;
+}
+
+message ServerCapabilities {
+  // Maximum number of simultaneous card connections
+  uint32 max_connections = 1;
+
+  // Maximum APDU size server can handle
+  uint32 max_apdu_size = 2;
+
+  // Supported features
+  repeated string features = 3;
+}
+
+// ============================================================================
+// Reader Management
+// ============================================================================
+
+message ListReadersRequest {
+  // Session ID from Connect
+  string session_id = 1;
+}
+
+message ListReadersResponse {
+  repeated Reader readers = 1;
+}
+
+message Reader {
+  // Reader name (unique identifier)
+  string name = 1;
+
+  // Answer To Reset from card (if present)
+  bytes atr = 2;
+
+  // Is card currently present
+  bool card_present = 3;
+
+  // Reader state
+  ReaderState state = 4;
+
+  // Reader vendor (optional)
+  string vendor = 5;
+
+  // Reader model (optional)
+  string model = 6;
+
+  enum ReaderState {
+    UNKNOWN = 0;
+    EMPTY = 1;          // Reader present, no card
+    PRESENT = 2;        // Card present and powered
+    SWALLOWED = 3;      // Card swallowed by reader
+    POWERED = 4;        // Card powered but not ready
+    NEGOTIABLE = 5;     // Card in negotiable mode
+    SPECIFIC = 6;       // Card ready for use
+    UNAVAILABLE = 7;    // Reader unavailable
+  }
+}
+
+// ============================================================================
+// Card Events
+// ============================================================================
+
+message StreamRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Optional: only stream events for specific readers
+  repeated string reader_filter = 2;
+}
+
+message CardEvent {
+  // Event timestamp (Unix timestamp in microseconds)
+  uint64 timestamp = 1;
+
+  // Event type
+  EventType type = 2;
+
+  // Reader name
+  string reader_name = 3;
+
+  // Card ATR (for insertion events)
+  bytes atr = 4;
+
+  enum EventType {
+    UNKNOWN = 0;
+    CARD_INSERTED = 1;
+    CARD_REMOVED = 2;
+    READER_ADDED = 3;
+    READER_REMOVED = 4;
+    READER_STATE_CHANGED = 5;
+  }
+}
+
+// ============================================================================
+// Card Operations
+// ============================================================================
+
+message CardConnectRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Reader name to connect to
+  string reader_name = 2;
+
+  // Share mode
+  ShareMode share_mode = 3;
+
+  // Preferred protocol
+  Protocol preferred_protocol = 4;
+
+  enum ShareMode {
+    SHARED = 0;     // Shared mode
+    EXCLUSIVE = 1;  // Exclusive mode
+    DIRECT = 2;     // Direct access (no card)
+  }
+
+  enum Protocol {
+    T0 = 0;         // T=0 protocol
+    T1 = 1;         // T=1 protocol
+    RAW = 2;        // Raw protocol
+    ANY = 3;        // Any protocol
+  }
+}
+
+message CardConnectResponse {
+  // Card handle for subsequent operations
+  uint64 card_handle = 1;
+
+  // Active protocol negotiated
+  CardConnectRequest.Protocol active_protocol = 2;
+}
+
+message CardDisconnectRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Card handle from CardConnect
+  uint64 card_handle = 2;
+
+  // Disposition of card on close
+  Disposition disposition = 3;
+
+  enum Disposition {
+    LEAVE_CARD = 0;    // Do nothing
+    RESET_CARD = 1;    // Reset card
+    UNPOWER_CARD = 2;  // Power down card
+    EJECT_CARD = 3;    // Eject card (if supported)
+  }
+}
+
+message CardDisconnectResponse {
+  // Success status
+  bool success = 1;
+}
+
+message TransmitRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Card handle
+  uint64 card_handle = 2;
+
+  // APDU command to transmit
+  bytes apdu = 3;
+
+  // Optional: specific protocol to use
+  CardConnectRequest.Protocol protocol = 4;
+}
+
+message TransmitResponse {
+  // Response data from card
+  bytes data = 1;
+
+  // Status word 1 (SW1)
+  uint32 sw1 = 2;
+
+  // Status word 2 (SW2)
+  uint32 sw2 = 3;
+
+  // Full response including SW1SW2
+  bytes response = 4;
+}
+
+message GetStatusRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Card handle
+  uint64 card_handle = 2;
+}
+
+message GetStatusResponse {
+  // Reader name
+  string reader_name = 1;
+
+  // Reader state
+  Reader.ReaderState state = 2;
+
+  // Active protocol
+  CardConnectRequest.Protocol protocol = 3;
+
+  // Card ATR
+  bytes atr = 4;
+}
+
+message ControlRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Card handle
+  uint64 card_handle = 2;
+
+  // Control code (reader-specific)
+  uint32 control_code = 3;
+
+  // Control data to send
+  bytes data = 4;
+}
+
+message ControlResponse {
+  // Response data from reader
+  bytes data = 1;
+}
+
+// ============================================================================
+// Keep-alive and Health
+// ============================================================================
+
+message HeartbeatRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Client timestamp
+  uint64 timestamp = 2;
+}
+
+message HeartbeatResponse {
+  // Server timestamp
+  uint64 timestamp = 1;
+
+  // Server still considers session valid
+  bool session_valid = 2;
+}
+
+message CapabilitiesRequest {
+  // Empty for now
+}
+
+message CapabilitiesResponse {
+  // Server version information
+  string version = 1;
+
+  // Supported protocol versions
+  repeated uint32 protocol_versions = 2;
+
+  // Features supported
+  repeated string features = 3;
+
+  // Server build information
+  BuildInfo build_info = 4;
+
+  message BuildInfo {
+    string git_commit = 1;
+    string build_date = 2;
+    string compiler = 3;
+  }
+}
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+// Errors are communicated via gRPC status codes:
+// - UNAVAILABLE: Network/connection issues
+// - INVALID_ARGUMENT: Bad request parameters
+// - NOT_FOUND: Reader/card not found
+// - FAILED_PRECONDITION: Card not connected, wrong state, etc.
+// - DEADLINE_EXCEEDED: Operation timeout
+// - RESOURCE_EXHAUSTED: Too many connections
+// - UNAUTHENTICATED: TLS auth failure
+// - PERMISSION_DENIED: ACL denial
+
+// Additional error details in status message or metadata

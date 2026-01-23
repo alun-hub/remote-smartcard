@@ -1,0 +1,68 @@
+[workspace]
+members = [
+    "common",
+    "client",
+    "server",
+    "tools/keygen",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Remote Smartcard Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alun-hub/remote-smartcard"
+homepage = "https://github.com/alun-hub/remote-smartcard"
+keywords = ["smartcard", "yubikey", "piv", "pkcs11", "remote"]
+categories = ["cryptography", "authentication"]
+
+[workspace.dependencies]
+# gRPC and Protocol Buffers
+tonic = "0.11"
+prost = "0.12"
+tonic-build = "0.11"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-stream = "0.1"
+
+# TLS
+tokio-rustls = "0.25"
+rustls = "0.22"
+rustls-pemfile = "2.0"
+
+# PC/SC
+pcsc = "2.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Utilities
+bytes = "1.5"
+futures = "0.3"
+
+# Testing
+mockall = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0

@@ -1,0 +1,49 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+*.profraw
+*.profdata
+
+# Logs
+*.log
+
+# Config (may contain secrets)
+config/local*.yaml
+*.key
+*.crt
+*.csr
+*.pem
+
+# Build artifacts
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# systemd override
+*.service.d/
+
+# Environment
+.env
+.env.local
+
+# Certificates (security)
+certs/
+*.p12
+*.pfx
+
+# Temporary files
+tmp/
+temp/
