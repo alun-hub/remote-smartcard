@@ -47,3 +47,6 @@ certs/
 # Temporary files
 tmp/
 temp/
+
+# Downloaded tools
+tools/protoc/

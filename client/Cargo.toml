@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal
 rsc-common = { path = "../common" }
+rsc-protocol = { path = "../protocol" }
 
 # gRPC
 tonic.workspace = true

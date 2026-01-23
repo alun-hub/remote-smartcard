@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal
 rsc-common = { path = "../common" }
+rsc-protocol = { path = "../protocol" }
 
 # gRPC
 tonic.workspace = true
@@ -43,6 +44,7 @@ thiserror.workspace = true
 # Utilities
 bytes.workspace = true
 dashmap = "5.5"
+uuid = { version = "1.6", features = ["v4"] }
 
 [build-dependencies]
 tonic-build.workspace = true

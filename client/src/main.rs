@@ -9,6 +9,7 @@ use tracing::{info, error};
 
 mod config;
 mod error;
+mod grpc_client;
 mod pcsc_reader;
 
 use config::ClientConfig;

@@ -5,8 +5,8 @@ package rsc;
 // Remote Smartcard Service
 // Allows forwarding PC/SC smartcard operations over the network
 service RemoteSmartcard {
-  // Establish connection and retrieve available readers
-  rpc Connect(ConnectRequest) returns (ConnectResponse);
+  // Establish session and retrieve available readers
+  rpc EstablishSession(ConnectRequest) returns (ConnectResponse);
 
   // Stream card events (insertion, removal, reader changes)
   rpc StreamCardEvents(StreamRequest) returns (stream CardEvent);
