@@ -70,9 +70,12 @@ pcsc_scan
 ## Documentation
 
 - **[User Guide](docs/USER_GUIDE.md)** - Comprehensive installation, configuration, and usage examples
+- **[Fedora/Rocky Setup](docs/FEDORA_ROCKY_SETUP.md)** - Specific guide for Fedora, Rocky Linux, RHEL, AlmaLinux
 - **[Setup Guide](SETUP.md)** - Detailed step-by-step setup instructions
 - **[Architecture](ARCHITECTURE.md)** - Technical architecture and design
 - **[Development](DEVELOPMENT.md)** - Development guide and contribution information
+- **[API Reference](docs/API.md)** - gRPC protocol documentation
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Installation
 

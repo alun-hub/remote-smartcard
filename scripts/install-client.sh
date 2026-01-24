@@ -61,7 +61,19 @@ install_dependencies() {
             apt-get install -y pcscd libpcsclite1 libccid opensc
             ;;
         redhat)
+            # Works for Fedora, Rocky Linux, RHEL, AlmaLinux
+            log_info "Installing packages for RHEL-based distribution..."
+
+            # Enable EPEL if available (for Rocky/RHEL/Alma)
+            if [ -f /etc/rocky-release ] || [ -f /etc/almalinux-release ]; then
+                dnf install -y epel-release 2>/dev/null || true
+            fi
+
             dnf install -y pcsc-lite pcsc-lite-ccid opensc
+
+            # Start pcscd
+            systemctl enable pcscd
+            systemctl start pcscd
             ;;
         arch)
             pacman -Sy --noconfirm pcsclite ccid opensc

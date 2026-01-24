@@ -13,6 +13,9 @@ This comprehensive guide explains how to install, configure, and use Remote Smar
 7. [Security Best Practices](#security-best-practices)
 8. [FAQ](#faq)
 
+**Platform-specific guides:**
+- [Fedora / Rocky Linux / RHEL Setup](FEDORA_ROCKY_SETUP.md)
+
 ---
 
 ## Introduction

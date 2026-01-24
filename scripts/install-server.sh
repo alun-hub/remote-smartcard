@@ -63,8 +63,30 @@ install_dependencies() {
             apt-get install -y vsmartcard-vpcd 2>/dev/null || log_warn "vpcd not in repos, may need manual install"
             ;;
         redhat)
+            # Works for Fedora, Rocky Linux, RHEL, AlmaLinux
+            log_info "Installing packages for RHEL-based distribution..."
+
+            # Enable EPEL if available (for Rocky/RHEL/Alma)
+            if command -v subscription-manager &>/dev/null; then
+                log_info "RHEL detected, ensure EPEL is configured"
+            elif [ -f /etc/rocky-release ] || [ -f /etc/almalinux-release ]; then
+                dnf install -y epel-release 2>/dev/null || true
+            fi
+
             dnf install -y pcsc-lite pcsc-lite-ccid opensc
-            dnf install -y vsmartcard-vpcd 2>/dev/null || log_warn "vpcd not in repos, may need manual install"
+
+            # Try to install vpcd (may not be available in all repos)
+            if dnf search vsmartcard-vpcd 2>/dev/null | grep -q vsmartcard; then
+                dnf install -y vsmartcard-vpcd
+            else
+                log_warn "vpcd not in repos. For vpcd installation, see:"
+                log_warn "  docs/FEDORA_ROCKY_SETUP.md"
+                log_warn "Or build from: https://github.com/frankmorgner/vsmartcard"
+            fi
+
+            # Start pcscd
+            systemctl enable pcscd
+            systemctl start pcscd
             ;;
         arch)
             pacman -Sy --noconfirm pcsclite ccid opensc
