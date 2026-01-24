@@ -98,15 +98,7 @@ sudo systemctl daemon-reload
 
 vpcd is required on the server to create virtual smartcard readers.
 
-### Fedora
-
-```bash
-# vpcd may be available in Fedora repos
-sudo dnf search vsmartcard
-sudo dnf install vsmartcard-vpcd  # If available
-```
-
-### Rocky Linux / RHEL / AlmaLinux
+### Fedora / Rocky Linux / RHEL / AlmaLinux
 
 vpcd is not in the standard repositories. Build from source:
 
