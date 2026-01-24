@@ -1,9 +1,22 @@
 //! Session management for Remote Smartcard Server
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use tracing::{info, debug};
+use tokio::sync::{mpsc, oneshot};
+use tonic::Status;
+use tracing::{info, debug, warn};
 use uuid::Uuid;
+
+use rsc_protocol::{CommandRequest, CommandResponse};
+
+/// Global command ID counter
+static COMMAND_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Generate a unique command ID
+fn next_command_id() -> u64 {
+    COMMAND_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
 
 /// Information about a reader within a session
 #[derive(Debug, Clone)]
@@ -13,14 +26,42 @@ pub struct ReaderInfo {
     pub card_present: bool,
 }
 
+/// Pending command waiting for response
+pub struct PendingCommand {
+    pub command_id: u64,
+    pub response_tx: oneshot::Sender<CommandResponse>,
+}
+
+/// Command channel for a session
+pub struct CommandChannel {
+    /// Sender for commands to the client
+    pub command_tx: mpsc::Sender<Result<CommandRequest, Status>>,
+    /// Pending commands waiting for responses
+    pub pending: HashMap<u64, oneshot::Sender<CommandResponse>>,
+}
+
 /// A client session
-#[derive(Debug)]
 pub struct Session {
     pub id: String,
     pub client_id: String,
     pub created_at: Instant,
     pub last_activity: Instant,
     pub readers: HashMap<String, ReaderInfo>,
+    /// Command channel for sending commands to client (None if client not connected)
+    pub command_channel: Option<CommandChannel>,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &self.id)
+            .field("client_id", &self.client_id)
+            .field("created_at", &self.created_at)
+            .field("last_activity", &self.last_activity)
+            .field("readers", &self.readers)
+            .field("command_channel", &self.command_channel.is_some())
+            .finish()
+    }
 }
 
 impl Session {
@@ -34,6 +75,7 @@ impl Session {
             created_at: now,
             last_activity: now,
             readers: HashMap::new(),
+            command_channel: None,
         }
     }
 
@@ -59,6 +101,78 @@ impl Session {
     /// Remove a reader
     pub fn remove_reader(&mut self, name: &str) {
         self.readers.remove(name);
+    }
+
+    /// Set the command channel for this session
+    pub fn set_command_channel(&mut self, tx: mpsc::Sender<Result<CommandRequest, Status>>) {
+        self.command_channel = Some(CommandChannel {
+            command_tx: tx,
+            pending: HashMap::new(),
+        });
+        info!("Command channel established for session {}", self.id);
+    }
+
+    /// Clear the command channel
+    pub fn clear_command_channel(&mut self) {
+        if self.command_channel.is_some() {
+            info!("Command channel closed for session {}", self.id);
+            self.command_channel = None;
+        }
+    }
+
+    /// Send a command to the client and wait for response
+    pub async fn send_command(&mut self, command: rsc_protocol::command_request::Command, reader_name: &str) -> Result<CommandResponse, String> {
+        let channel = self.command_channel.as_mut()
+            .ok_or_else(|| "Client command channel not connected".to_string())?;
+
+        let command_id = next_command_id();
+
+        // Create oneshot channel for the response
+        let (response_tx, response_rx) = oneshot::channel();
+
+        // Store pending command
+        channel.pending.insert(command_id, response_tx);
+
+        // Build the request
+        let request = CommandRequest {
+            command_id,
+            command: Some(command),
+            reader_name: reader_name.to_string(),
+        };
+
+        // Send the command
+        channel.command_tx.send(Ok(request)).await
+            .map_err(|e| format!("Failed to send command: {}", e))?;
+
+        debug!("Sent command {} to client", command_id);
+
+        // Wait for response (with timeout)
+        match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err("Response channel closed".to_string()),
+            Err(_) => {
+                // Remove pending command on timeout
+                channel.pending.remove(&command_id);
+                Err("Command timed out".to_string())
+            }
+        }
+    }
+
+    /// Handle a response from the client
+    pub fn handle_response(&mut self, response: CommandResponse) -> Result<(), String> {
+        let channel = self.command_channel.as_mut()
+            .ok_or_else(|| "No command channel".to_string())?;
+
+        let command_id = response.command_id;
+        if let Some(tx) = channel.pending.remove(&command_id) {
+            if tx.send(response).is_err() {
+                warn!("Response receiver dropped for command {}", command_id);
+            }
+            Ok(())
+        } else {
+            warn!("No pending command for response ID {}", command_id);
+            Err(format!("Unknown command ID: {}", command_id))
+        }
     }
 }
 

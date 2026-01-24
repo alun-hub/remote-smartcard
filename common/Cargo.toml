@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "Common utilities and types for Remote Smartcard"
 
+[features]
+default = ["tonic"]
+tonic = ["dep:tonic"]
+
 [dependencies]
 # Error handling
 anyhow.workspace = true
@@ -26,3 +30,6 @@ rustls-pemfile.workspace = true
 
 # Async
 tokio.workspace = true
+
+# gRPC (optional)
+tonic = { workspace = true, optional = true }

@@ -8,6 +8,9 @@ service RemoteSmartcard {
   // Establish session and retrieve available readers
   rpc EstablishSession(ConnectRequest) returns (ConnectResponse);
 
+  // Update reader information (client -> server)
+  rpc UpdateReaderInfo(UpdateReaderInfoRequest) returns (UpdateReaderInfoResponse);
+
   // Stream card events (insertion, removal, reader changes)
   rpc StreamCardEvents(StreamRequest) returns (stream CardEvent);
 
@@ -34,6 +37,10 @@ service RemoteSmartcard {
 
   // Get server capabilities
   rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+
+  // Bidirectional command channel for APDU forwarding
+  // Server sends commands, client executes on local card and sends responses
+  rpc CommandChannel(stream CommandResponse) returns (stream CommandRequest);
 }
 
 // ============================================================================
@@ -91,6 +98,32 @@ message ServerCapabilities {
 
   // Supported features
   repeated string features = 3;
+}
+
+// ============================================================================
+// Reader Info Update (Client -> Server)
+// ============================================================================
+
+message UpdateReaderInfoRequest {
+  // Session ID
+  string session_id = 1;
+
+  // Reader name
+  string reader_name = 2;
+
+  // Card ATR (empty if no card present)
+  bytes atr = 3;
+
+  // Is card present
+  bool card_present = 4;
+}
+
+message UpdateReaderInfoResponse {
+  // Success status
+  bool success = 1;
+
+  // Virtual reader name on server (for vpcd)
+  string virtual_reader_name = 2;
 }
 
 // ============================================================================
@@ -344,6 +377,107 @@ message CapabilitiesResponse {
     string git_commit = 1;
     string build_date = 2;
     string compiler = 3;
+  }
+}
+
+// ============================================================================
+// Command Channel (Server -> Client -> Server)
+// ============================================================================
+
+// Command sent from server to client for execution on local card
+message CommandRequest {
+  // Unique command ID for correlation
+  uint64 command_id = 1;
+
+  // Command type
+  oneof command {
+    ApduCommand apdu = 2;
+    CardConnectCommand connect = 3;
+    CardDisconnectCommand disconnect = 4;
+    GetAtrCommand get_atr = 5;
+  }
+
+  // Reader name to execute on
+  string reader_name = 6;
+}
+
+message ApduCommand {
+  // APDU data to transmit
+  bytes apdu = 1;
+}
+
+message CardConnectCommand {
+  // Share mode for connection
+  CardConnectRequest.ShareMode share_mode = 1;
+
+  // Preferred protocol
+  CardConnectRequest.Protocol preferred_protocol = 2;
+}
+
+message CardDisconnectCommand {
+  // Card handle to disconnect
+  uint64 card_handle = 1;
+
+  // Disposition
+  CardDisconnectRequest.Disposition disposition = 2;
+}
+
+message GetAtrCommand {
+  // Empty - just request current ATR
+}
+
+// Response from client after executing command
+message CommandResponse {
+  // Command ID this is responding to
+  uint64 command_id = 1;
+
+  // Session ID
+  string session_id = 2;
+
+  // Success status
+  bool success = 3;
+
+  // Error message if not successful
+  string error = 4;
+
+  // Response type
+  oneof response {
+    ApduResponse apdu = 5;
+    ConnectResponse connect = 6;
+    DisconnectResponse disconnect = 7;
+    AtrResponse atr = 8;
+  }
+
+  message ApduResponse {
+    // Response data from card
+    bytes data = 1;
+
+    // Status words
+    uint32 sw1 = 2;
+    uint32 sw2 = 3;
+  }
+
+  message ConnectResponse {
+    // Card handle for subsequent operations
+    uint64 card_handle = 1;
+
+    // Active protocol
+    CardConnectRequest.Protocol active_protocol = 2;
+
+    // ATR from card
+    bytes atr = 3;
+  }
+
+  message DisconnectResponse {
+    // Empty on success
+  }
+
+  message AtrResponse {
+    // Current ATR
+    bytes atr = 1;
+
+    // Card present
+    bool card_present = 2;
   }
 }
 

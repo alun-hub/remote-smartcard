@@ -1,0 +1,12 @@
+[package]
+name = "vpcd-test"
+version = "0.1.0"
+edition = "2021"
+description = "Test tool that simulates vpcd for testing Remote Smartcard"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"

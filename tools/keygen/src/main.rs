@@ -166,6 +166,7 @@ fn generate_server_cert(
     let key_path = output.join("server.key");
     let csr_path = output.join("server.csr");
     let cert_path = output.join("server.crt");
+    let ext_path = output.join("server_ext.cnf");
 
     println!("Generating server private key...");
 
@@ -196,9 +197,24 @@ fn generate_server_cert(
         anyhow::bail!("Failed to generate CSR");
     }
 
-    println!("Signing certificate with CA...");
+    // Create extensions file for SAN
+    // Check if hostname is an IP address
+    let is_ip = hostname.parse::<std::net::IpAddr>().is_ok();
+    let san = if is_ip {
+        format!("IP:{}", hostname)
+    } else {
+        format!("DNS:{}", hostname)
+    };
 
-    // Sign with CA
+    let ext_content = format!(
+        "subjectAltName = {}\nbasicConstraints = CA:FALSE\nkeyUsage = digitalSignature, keyEncipherment\nextendedKeyUsage = serverAuth",
+        san
+    );
+    std::fs::write(&ext_path, ext_content)?;
+
+    println!("Signing certificate with CA (SAN: {})...", san);
+
+    // Sign with CA including extensions
     let status = Command::new("openssl")
         .args(["x509", "-req", "-in"])
         .arg(&csr_path)
@@ -210,15 +226,17 @@ fn generate_server_cert(
         .arg(&cert_path)
         .args(["-days"])
         .arg(days.to_string())
-        .args(["-sha256"])
+        .args(["-sha256", "-extfile"])
+        .arg(&ext_path)
         .status()?;
 
     if !status.success() {
         anyhow::bail!("Failed to sign server certificate");
     }
 
-    // Cleanup CSR
+    // Cleanup temp files
     let _ = std::fs::remove_file(&csr_path);
+    let _ = std::fs::remove_file(&ext_path);
 
     println!("Server certificate generated successfully!");
     println!("  Key:  {:?}", key_path);
