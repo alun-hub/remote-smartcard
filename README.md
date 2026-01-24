@@ -25,35 +25,67 @@ Remote Smartcard enables transparent smartcard access over the network. Applicat
 
 ## Quick Start
 
-### Server (where you want to use the smartcard)
+### Prerequisites
+
+**Server (where you want to use the smartcard):**
+```bash
+# Install PC/SC and build tools
+sudo apt-get update
+sudo apt-get install -y pcscd libpcsclite-dev pcsc-tools \
+    git build-essential autoconf automake libtool pkg-config help2man
+
+# Build and install vsmartcard (provides vpcd - virtual smartcard reader)
+git clone https://github.com/frankmorgner/vsmartcard.git
+cd vsmartcard/virtualsmartcard
+autoreconf --install
+./configure
+make
+sudo make install
+sudo ldconfig
+```
+
+**Client (where your smartcard is connected):**
+```bash
+sudo apt-get install -y pcscd libpcsclite-dev pcsc-tools
+```
+
+### Build rsc from source
 
 ```bash
-# Install
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-linux-amd64
-chmod +x rsc-server-linux-amd64
-sudo mv rsc-server-linux-amd64 /usr/local/bin/rsc-server
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
 
-# Install vpcd (virtual smartcard reader)
-sudo apt-get install vsmartcard-vpcd  # Debian/Ubuntu
+# Install protobuf compiler
+sudo apt-get install -y protobuf-compiler
 
-# Generate certificates and start
-mkdir ~/certs && cd ~/certs
+# Clone and build
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build --release
+
+# Install binaries
+sudo cp target/release/rsc-server /usr/local/bin/  # On server
+sudo cp target/release/rsc-client /usr/local/bin/  # On client
+```
+
+### Generate certificates and start
+
+**On server:**
+```bash
+mkdir -p ~/certs && cd ~/certs
 openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \
     -days 365 -nodes -subj "/CN=$(hostname)"
 
-rsc-server --port 8443 --tls-cert server.crt --tls-key server.key
+rsc-server --port 8443 --tls-cert server.crt --tls-key server.key --auto-vpcd
 ```
 
-### Client (where your smartcard is connected)
-
+**On client:**
 ```bash
-# Install
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-linux-amd64
-chmod +x rsc-client-linux-amd64
-sudo mv rsc-client-linux-amd64 /usr/local/bin/rsc-client
-
-# Copy server certificate and connect
+# Copy server certificate
 scp server:~/certs/server.crt ~/
+
+# Connect (replace SERVER_IP with actual IP/hostname)
 rsc-client --server https://SERVER_IP:8443 --tls-ca ~/server.crt
 ```
 
@@ -79,21 +111,32 @@ pcsc_scan
 
 ## Installation
 
-### From Binary Release
-
-Download from [Releases](https://github.com/alun-hub/remote-smartcard/releases):
+### From Source (recommended)
 
 ```bash
-# Server
-tar xzf rsc-server-linux-amd64.tar.gz
-sudo mv rsc-server /usr/local/bin/
+# Prerequisites (Debian/Ubuntu)
+sudo apt-get install protobuf-compiler libpcsclite-dev pcscd
 
-# Client
-tar xzf rsc-client-linux-amd64.tar.gz
-sudo mv rsc-client /usr/local/bin/
+# Prerequisites (Fedora/RHEL)
+sudo dnf install protobuf-compiler pcsc-lite-devel pcsc-lite
+
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Build
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build --release
+
+# Install
+sudo cp target/release/rsc-server /usr/local/bin/  # On server
+sudo cp target/release/rsc-client /usr/local/bin/  # On client
 ```
 
-### From Package
+### From Package (when available)
+
+Pre-built packages will be available in future releases:
 
 **Debian/Ubuntu:**
 ```bash
@@ -105,22 +148,6 @@ sudo dpkg -i rsc-client_0.1.0_amd64.deb  # Client
 ```bash
 sudo rpm -i rsc-server-0.1.0-1.x86_64.rpm  # Server
 sudo rpm -i rsc-client-0.1.0-1.x86_64.rpm  # Client
-```
-
-### From Source
-
-```bash
-# Prerequisites
-sudo apt-get install protobuf-compiler libpcsclite-dev
-
-# Build
-git clone https://github.com/alun-hub/remote-smartcard.git
-cd remote-smartcard
-cargo build --release
-
-# Install
-sudo cp target/release/rsc-server /usr/local/bin/
-sudo cp target/release/rsc-client /usr/local/bin/
 ```
 
 ## Usage Examples

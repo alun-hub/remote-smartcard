@@ -29,19 +29,14 @@ No additional repositories needed.
 
 ## Installation Methods
 
-### Method 1: Install from RPM Package
+### Method 1: Install from RPM Package (when releases are available)
+
+> **Note**: Pre-built RPM packages are not yet available. Use Method 2 or 3 instead.
 
 ```bash
-# Download the RPM packages
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-0.1.0-1.el9.x86_64.rpm
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-0.1.0-1.el9.x86_64.rpm
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-tools-0.1.0-1.el9.x86_64.rpm
-
-# Install on server
-sudo dnf install ./rsc-server-0.1.0-1.el9.x86_64.rpm ./rsc-tools-0.1.0-1.el9.x86_64.rpm
-
-# Install on client
-sudo dnf install ./rsc-client-0.1.0-1.el9.x86_64.rpm
+# Once releases are available, download and install:
+# curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-0.1.0-1.el9.x86_64.rpm
+# sudo dnf install ./rsc-server-0.1.0-1.el9.x86_64.rpm
 ```
 
 ### Method 2: Build RPM from Source
@@ -74,25 +69,28 @@ rpmbuild -ba ~/rpmbuild/SPECS/remote-smartcard.spec
 sudo dnf install ~/rpmbuild/RPMS/x86_64/rsc-*.rpm
 ```
 
-### Method 3: Install from Binary
+### Method 3: Build and Install from Source
 
 ```bash
 # Install dependencies
-sudo dnf install pcsc-lite pcsc-lite-ccid opensc
+sudo dnf install pcsc-lite pcsc-lite-devel pcsc-lite-ccid opensc protobuf-compiler
 
-# Download and install binaries
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-linux-amd64
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-linux-amd64
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
 
-chmod +x rsc-server-linux-amd64 rsc-client-linux-amd64
-sudo mv rsc-server-linux-amd64 /usr/local/bin/rsc-server
-sudo mv rsc-client-linux-amd64 /usr/local/bin/rsc-client
+# Clone and build
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build --release
 
-# Download and install systemd services
-curl -LO https://raw.githubusercontent.com/alun-hub/remote-smartcard/main/systemd/rsc-server.service
-curl -LO https://raw.githubusercontent.com/alun-hub/remote-smartcard/main/systemd/rsc-client.service
+# Install binaries
+sudo cp target/release/rsc-server /usr/local/bin/
+sudo cp target/release/rsc-client /usr/local/bin/
 
-sudo mv rsc-server.service rsc-client.service /etc/systemd/system/
+# Install systemd services
+sudo cp systemd/rsc-server.service /etc/systemd/system/
+sudo cp systemd/rsc-client.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
@@ -114,39 +112,31 @@ vpcd is not in the standard repositories. Build from source:
 
 ```bash
 # Install build dependencies
-sudo dnf install git autoconf automake libtool help2man gengetopt pcsc-lite-devel
+sudo dnf install git autoconf automake libtool help2man pcsc-lite-devel
 
-# Clone and build vsmartcard
+# Clone and build vsmartcard (which includes vpcd)
 git clone https://github.com/frankmorgner/vsmartcard.git
-cd vsmartcard
-
-# Build vpcd
-cd vpcd
-autoreconf -vis
-./configure --sysconfdir=/etc
+cd vsmartcard/virtualsmartcard
+autoreconf --install
+./configure
 make
 sudo make install
+sudo ldconfig
 
-# The vpcd binary is now at /usr/local/bin/vpcd
+# vpcd is now installed as part of virtualsmartcard
 ```
 
-### Configure pcscd for vpcd
+### Verify vpcd Installation
 
 ```bash
-# Create vpcd configuration
-sudo mkdir -p /etc/reader.conf.d
+# Check that vpcd is installed
+which vicc  # vicc is the virtual smartcard emulator from vsmartcard
 
-# Add vpcd reader configuration
-cat << 'EOF' | sudo tee /etc/reader.conf.d/vpcd.conf
-# Virtual PCD reader
-FRIENDLYNAME "Virtual PCD"
-DEVICENAME   /dev/null
-LIBPATH      /usr/lib64/pcsc/drivers/serial/libifdvpcd.so
-CHANNELID    0x8C7B
-EOF
-
-# Restart pcscd
+# Restart pcscd to pick up changes
 sudo systemctl restart pcscd
+
+# Note: rsc-server will handle vpcd communication automatically
+# when started with --auto-vpcd flag
 ```
 
 ## Server Setup

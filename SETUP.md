@@ -69,18 +69,15 @@ sudo apt-get install -y \
     libccid \
     opensc
 
-# Installera vpcd (virtual reader)
-# Option A: Från package (om tillgängligt)
-sudo apt-get install -y vpcsc
-
-# Option B: Bygg från source (om package saknas)
+# Installera vpcd (virtual reader) - bygg från source
 sudo apt-get install -y \
     git \
     build-essential \
+    autoconf \
+    automake \
+    libtool \
     pkg-config \
-    help2man \
-    gengetopt \
-    libnfc-dev
+    help2man
 
 git clone https://github.com/frankmorgner/vsmartcard.git
 cd vsmartcard/virtualsmartcard
@@ -88,12 +85,7 @@ autoreconf --install
 ./configure
 make
 sudo make install
-
-cd ../vpcd
-autoreconf --install
-./configure
-make
-sudo make install
+sudo ldconfig
 ```
 
 **Klient:**
@@ -113,14 +105,28 @@ sudo apt-get install -y \
 ```bash
 sudo dnf install -y \
     pcsc-lite \
+    pcsc-lite-devel \
     pcsc-lite-ccid \
     opensc
 
-# vpcd (kan behöva EPEL eller bygga från source)
-sudo dnf install -y epel-release
-sudo dnf install -y vsmartcard-vpcd
+# Installera build tools för vpcd
+sudo dnf install -y \
+    git \
+    gcc \
+    make \
+    autoconf \
+    automake \
+    libtool \
+    help2man
 
-# Eller bygg från source (samma som Debian ovan)
+# Bygg vpcd från source
+git clone https://github.com/frankmorgner/vsmartcard.git
+cd vsmartcard/virtualsmartcard
+autoreconf --install
+./configure
+make
+sudo make install
+sudo ldconfig
 ```
 
 **Klient:**
@@ -188,44 +194,33 @@ cargo --version
 **På build-maskin (kan vara samma som klient/server):**
 ```bash
 # Klona repository
-git clone https://github.com/yourusername/remote-smartcard.git
+git clone https://github.com/alun-hub/remote-smartcard.git
 cd remote-smartcard
 
-# Bygg protokoll (generera Rust kod från .proto)
-# Kräver protobuf compiler
+# Installera protobuf compiler
 sudo apt-get install -y protobuf-compiler  # Debian/Ubuntu
 # eller
 sudo dnf install -y protobuf-compiler      # RHEL/Fedora
 
-# Bygg client
-cd client
+# Bygg hela projektet (client, server, och tools)
 cargo build --release
 
-# Binary finns nu i: target/release/rsc-client
-
-# Bygg server
-cd ../server
-cargo build --release
-
-# Binary finns nu i: target/release/rsc-server
-
-# Bygg keygen tool
-cd ../tools/keygen
-cargo build --release
-
-# Binary: target/release/rsc-keygen
+# Binaries finns nu i:
+# - target/release/rsc-client
+# - target/release/rsc-server
+# - target/release/rsc-keygen
 ```
 
 ### 3.3 Installera binaries
 
 **På server:**
 ```bash
-# Kopiera binary
-sudo cp server/target/release/rsc-server /usr/local/bin/
+# Kopiera binary (från remote-smartcard katalogen)
+sudo cp target/release/rsc-server /usr/local/bin/
 sudo chmod +x /usr/local/bin/rsc-server
 
-# Kopiera keygen
-sudo cp tools/keygen/target/release/rsc-keygen /usr/local/bin/
+# Kopiera keygen (optional)
+sudo cp target/release/rsc-keygen /usr/local/bin/
 sudo chmod +x /usr/local/bin/rsc-keygen
 
 # Skapa config directory
@@ -240,8 +235,8 @@ sudo systemctl daemon-reload
 
 **På klient:**
 ```bash
-# Kopiera binary
-sudo cp client/target/release/rsc-client /usr/local/bin/
+# Kopiera binary (från remote-smartcard katalogen)
+sudo cp target/release/rsc-client /usr/local/bin/
 sudo chmod +x /usr/local/bin/rsc-client
 
 # Skapa config directory
