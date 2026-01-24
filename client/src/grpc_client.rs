@@ -1,5 +1,7 @@
 //! gRPC client for Remote Smartcard
 
+#![allow(dead_code)]
+
 use rsc_protocol::{
     ConnectRequest, ConnectResponse, TransmitRequest, TransmitResponse,
     ListReadersRequest, ListReadersResponse, HeartbeatRequest, HeartbeatResponse,

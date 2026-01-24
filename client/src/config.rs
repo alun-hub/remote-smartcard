@@ -1,4 +1,8 @@
 //! Client configuration
+//!
+//! Configuration structures for future config file support.
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

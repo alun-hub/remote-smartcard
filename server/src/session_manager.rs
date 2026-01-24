@@ -1,5 +1,7 @@
 //! Session management for Remote Smartcard Server
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;

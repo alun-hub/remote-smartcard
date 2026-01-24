@@ -70,8 +70,9 @@ struct Args {
     no_reconnect: bool,
 }
 
-/// Connection state
+/// Connection state (reserved for future use)
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum ConnectionState {
     Disconnected,
     Connecting,

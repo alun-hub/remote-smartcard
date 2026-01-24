@@ -2,6 +2,8 @@
 //!
 //! Provides functions to interact with local smartcard readers via PC/SC.
 
+#![allow(dead_code)]
+
 use pcsc::{Context, Protocols, Scope, ShareMode};
 use tracing::{debug, trace};
 

@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Server-specific errors
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ServerError {
     /// Configuration error
     #[error("Configuration error: {0}")]
