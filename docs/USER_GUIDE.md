@@ -71,14 +71,26 @@ Remote Smartcard (rsc) lets you use a smartcard or Yubikey connected to your loc
 **1. On the server (where you want to use the smartcard):**
 
 ```bash
-# Download and install
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-linux-amd64
-sudo mv rsc-server-linux-amd64 /usr/local/bin/rsc-server
-sudo chmod +x /usr/local/bin/rsc-server
+# Install dependencies
+sudo apt-get update
+sudo apt-get install -y pcscd libpcsclite-dev pcsc-tools \
+    git build-essential autoconf automake libtool pkg-config help2man
 
-# Install vpcd (virtual smartcard reader)
-sudo apt-get install vsmartcard-vpcd  # Debian/Ubuntu
-# or: sudo dnf install vsmartcard-vpcd  # Fedora/RHEL
+# Build and install vpcd (virtual smartcard reader)
+git clone https://github.com/frankmorgner/vsmartcard.git
+cd vsmartcard/virtualsmartcard
+autoreconf --install && ./configure && make && sudo make install && sudo ldconfig
+cd ~
+
+# Build rsc-server (requires Rust)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+sudo apt-get install -y protobuf-compiler
+
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build --release
+sudo cp target/release/rsc-server /usr/local/bin/
 
 # Generate certificates
 mkdir -p ~/rsc-certs && cd ~/rsc-certs
@@ -86,16 +98,21 @@ openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt -days 365 
     -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 
 # Start server
-rsc-server --port 8443 --tls-cert server.crt --tls-key server.key
+rsc-server --port 8443 --tls-cert server.crt --tls-key server.key --auto-vpcd
 ```
 
 **2. On the client (where your smartcard is connected):**
 
 ```bash
-# Download and install
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-linux-amd64
-sudo mv rsc-client-linux-amd64 /usr/local/bin/rsc-client
-sudo chmod +x /usr/local/bin/rsc-client
+# Install dependencies and build
+sudo apt-get install -y pcscd libpcsclite-dev protobuf-compiler
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build --release
+sudo cp target/release/rsc-client /usr/local/bin/
 
 # Copy server certificate (for verification)
 scp server:~/rsc-certs/server.crt ~/
@@ -120,72 +137,48 @@ pcsc_scan
 
 ## Installation
 
-### Option 1: From Binary Release
-
-Download pre-built binaries from the [releases page](https://github.com/alun-hub/remote-smartcard/releases).
-
-**Server:**
-```bash
-# Download
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-linux-amd64.tar.gz
-tar xzf rsc-server-linux-amd64.tar.gz
-
-# Install
-sudo mv rsc-server /usr/local/bin/
-sudo mv rsc-keygen /usr/local/bin/
-
-# Install systemd service
-sudo mv rsc-server.service /etc/systemd/system/
-sudo systemctl daemon-reload
-```
-
-**Client:**
-```bash
-curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-linux-amd64.tar.gz
-tar xzf rsc-client-linux-amd64.tar.gz
-sudo mv rsc-client /usr/local/bin/
-sudo mv rsc-client.service /etc/systemd/system/
-sudo systemctl daemon-reload
-```
-
-### Option 2: From Package (Debian/Ubuntu)
-
-```bash
-# Server
-sudo dpkg -i rsc-server_0.1.0_amd64.deb
-
-# Client
-sudo dpkg -i rsc-client_0.1.0_amd64.deb
-```
-
-### Option 3: From Package (RHEL/Fedora)
-
-```bash
-# Server
-sudo rpm -i rsc-server-0.1.0-1.x86_64.rpm
-
-# Client
-sudo rpm -i rsc-client-0.1.0-1.x86_64.rpm
-```
-
-### Option 4: Build from Source
+### Option 1: Build from Source (recommended)
 
 ```bash
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# Install dependencies
-sudo apt-get install protobuf-compiler libpcsclite-dev  # Debian/Ubuntu
-# or: sudo dnf install protobuf-compiler pcsc-lite-devel  # Fedora/RHEL
+# Install dependencies (Debian/Ubuntu)
+sudo apt-get install protobuf-compiler libpcsclite-dev pcscd
+
+# Install dependencies (Fedora/RHEL)
+# sudo dnf install protobuf-compiler pcsc-lite-devel pcsc-lite
 
 # Clone and build
 git clone https://github.com/alun-hub/remote-smartcard.git
 cd remote-smartcard
 cargo build --release
 
-# Binaries are in target/release/
-ls target/release/rsc-*
+# Install binaries
+sudo cp target/release/rsc-server /usr/local/bin/  # On server
+sudo cp target/release/rsc-client /usr/local/bin/  # On client
+
+# Install systemd services (optional)
+sudo cp systemd/rsc-server.service /etc/systemd/system/  # On server
+sudo cp systemd/rsc-client.service /etc/systemd/system/  # On client
+sudo systemctl daemon-reload
+```
+
+### Option 2: From Package (when available)
+
+> **Note**: Pre-built packages are not yet available. Use Option 1 for now.
+
+**Debian/Ubuntu:**
+```bash
+# sudo dpkg -i rsc-server_0.1.0_amd64.deb  # Server
+# sudo dpkg -i rsc-client_0.1.0_amd64.deb  # Client
+```
+
+**RHEL/Fedora:**
+```bash
+# sudo rpm -i rsc-server-0.1.0-1.x86_64.rpm  # Server
+# sudo rpm -i rsc-client-0.1.0-1.x86_64.rpm  # Client
 ```
 
 ### Install Dependencies
@@ -193,10 +186,17 @@ ls target/release/rsc-*
 **On the server:**
 ```bash
 # Debian/Ubuntu
-sudo apt-get install pcscd libpcsclite1 vsmartcard-vpcd opensc
+sudo apt-get install pcscd libpcsclite-dev opensc pcsc-tools
 
 # Fedora/RHEL
-sudo dnf install pcsc-lite vsmartcard-vpcd opensc
+sudo dnf install pcsc-lite pcsc-lite-devel opensc
+
+# vpcd must be built from source (not available as package)
+# See: https://github.com/frankmorgner/vsmartcard
+git clone https://github.com/frankmorgner/vsmartcard.git
+cd vsmartcard/virtualsmartcard
+autoreconf --install && ./configure && make && sudo make install
+sudo ldconfig
 
 # Start pcscd
 sudo systemctl enable pcscd
