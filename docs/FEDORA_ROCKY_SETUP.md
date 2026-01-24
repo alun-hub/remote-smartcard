@@ -114,7 +114,7 @@ vpcd is not in the standard repositories. Build from source:
 # Install build dependencies
 sudo dnf install git autoconf automake libtool help2man pcsc-lite-devel
 
-# Clone and build vsmartcard (which includes vpcd)
+# Clone and build vsmartcard (which includes vpcd driver)
 git clone https://github.com/frankmorgner/vsmartcard.git
 cd vsmartcard/virtualsmartcard
 autoreconf --install
@@ -123,20 +123,32 @@ make
 sudo make install
 sudo ldconfig
 
-# vpcd is now installed as part of virtualsmartcard
+# Configure pcscd to load vpcd driver
+# Note: LIBPATH may be /usr/lib64/... on 64-bit systems
+sudo mkdir -p /etc/reader.conf.d
+cat << 'EOF' | sudo tee /etc/reader.conf.d/vpcd.conf
+FRIENDLYNAME "Virtual PCD"
+DEVICENAME /dev/null:0x8C7B
+LIBPATH /usr/lib64/pcsc/drivers/serial/libifdvpcd.so
+CHANNELID 0x8C7B
+EOF
+
+# Restart pcscd to load the driver
+sudo systemctl restart pcscd
 ```
 
 ### Verify vpcd Installation
 
 ```bash
-# Check that vpcd is installed
-which vicc  # vicc is the virtual smartcard emulator from vsmartcard
+# Check that vpcd driver library is installed
+find /usr -name "libifdvpcd.so" 2>/dev/null
+# Should show something like: /usr/lib64/pcsc/drivers/serial/libifdvpcd.so
 
-# Restart pcscd to pick up changes
-sudo systemctl restart pcscd
+# Check that pcscd sees the Virtual PCD reader
+pcsc_scan
+# Should show "Virtual PCD" in the reader list (will wait for card until rsc-server connects)
 
-# Note: rsc-server will handle vpcd communication automatically
-# when started with --auto-vpcd flag
+# Note: rsc-server connects to vpcd on port 35963 and emulates the card
 ```
 
 ## Server Setup

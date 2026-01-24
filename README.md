@@ -34,7 +34,7 @@ sudo apt-get update
 sudo apt-get install -y pcscd libpcsclite-dev pcsc-tools \
     git build-essential autoconf automake libtool pkg-config help2man
 
-# Build and install vsmartcard (provides vpcd - virtual smartcard reader)
+# Build and install vsmartcard (provides vpcd driver)
 git clone https://github.com/frankmorgner/vsmartcard.git
 cd vsmartcard/virtualsmartcard
 autoreconf --install
@@ -42,6 +42,16 @@ autoreconf --install
 make
 sudo make install
 sudo ldconfig
+
+# Configure pcscd to load vpcd driver
+sudo mkdir -p /etc/reader.conf.d
+echo 'FRIENDLYNAME "Virtual PCD"
+DEVICENAME /dev/null:0x8C7B
+LIBPATH /usr/lib/pcsc/drivers/serial/libifdvpcd.so
+CHANNELID 0x8C7B' | sudo tee /etc/reader.conf.d/vpcd.conf
+
+# Restart pcscd
+sudo systemctl restart pcscd
 ```
 
 **Client (where your smartcard is connected):**

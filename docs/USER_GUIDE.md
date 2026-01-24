@@ -198,6 +198,14 @@ cd vsmartcard/virtualsmartcard
 autoreconf --install && ./configure && make && sudo make install
 sudo ldconfig
 
+# Configure pcscd to load vpcd driver
+sudo mkdir -p /etc/reader.conf.d
+echo 'FRIENDLYNAME "Virtual PCD"
+DEVICENAME /dev/null:0x8C7B
+LIBPATH /usr/lib/pcsc/drivers/serial/libifdvpcd.so
+CHANNELID 0x8C7B' | sudo tee /etc/reader.conf.d/vpcd.conf
+sudo systemctl restart pcscd
+
 # Start pcscd
 sudo systemctl enable pcscd
 sudo systemctl start pcscd

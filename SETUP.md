@@ -69,7 +69,7 @@ sudo apt-get install -y \
     libccid \
     opensc
 
-# Installera vpcd (virtual reader) - bygg från source
+# Installera vpcd (virtual reader driver) - bygg från source
 sudo apt-get install -y \
     git \
     build-essential \
@@ -86,6 +86,22 @@ autoreconf --install
 make
 sudo make install
 sudo ldconfig
+
+# Konfigurera pcscd att ladda vpcd-drivern
+# Notera: LIBPATH kan variera - kör 'find /usr -name libifdvpcd.so' för att hitta den
+sudo mkdir -p /etc/reader.conf.d
+cat << 'EOF' | sudo tee /etc/reader.conf.d/vpcd.conf
+FRIENDLYNAME "Virtual PCD"
+DEVICENAME /dev/null:0x8C7B
+LIBPATH /usr/lib/pcsc/drivers/serial/libifdvpcd.so
+CHANNELID 0x8C7B
+EOF
+
+# Starta om pcscd för att ladda drivern
+sudo systemctl restart pcscd
+
+# Verifiera att vpcd-drivern är laddad (ska visa "Virtual PCD")
+pcsc_scan
 ```
 
 **Klient:**
@@ -127,6 +143,17 @@ autoreconf --install
 make
 sudo make install
 sudo ldconfig
+
+# Konfigurera pcscd (sökvägen kan variera)
+sudo mkdir -p /etc/reader.conf.d
+cat << 'EOF' | sudo tee /etc/reader.conf.d/vpcd.conf
+FRIENDLYNAME "Virtual PCD"
+DEVICENAME /dev/null:0x8C7B
+LIBPATH /usr/lib64/pcsc/drivers/serial/libifdvpcd.so
+CHANNELID 0x8C7B
+EOF
+
+sudo systemctl restart pcscd
 ```
 
 **Klient:**
