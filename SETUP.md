@@ -189,10 +189,13 @@ pcsc_scan
 
 **På server:**
 ```bash
-# Testa att vpcd kan startas
-vpcd --help
+# Verifiera att vpcd-drivern är installerad
+find /usr -name "libifdvpcd.so" 2>/dev/null
+# Ska visa sökväg till drivern, t.ex.: /usr/lib/pcsc/drivers/serial/libifdvpcd.so
 
-# Ska visa help text utan error
+# Verifiera att pcscd ser Virtual PCD reader
+pcsc_scan
+# Ska visa "Virtual PCD" i listan (väntar på kort tills rsc-server ansluter)
 ```
 
 ---
@@ -417,47 +420,37 @@ openssl verify -CAfile /etc/rsc-server/certs/ca.crt \
 
 ### 5.1 Server Configuration
 
-**Skapa `/etc/rsc-server/config.yaml`:**
-```yaml
-server:
-  # Lyssna på alla interfaces
-  bind_address: "0.0.0.0"
-  # Port för gRPC server
-  port: 8443
-  # Max antal samtidiga klienter
-  max_clients: 100
+Servern konfigureras via kommandoradsargument. Här är de viktigaste:
 
-tls:
-  # Server certifikat och nyckel
-  server_cert: "/etc/rsc-server/certs/server.crt"
-  server_key: "/etc/rsc-server/certs/server.key"
-  # CA för att verifiera klient-certifikat
-  ca_cert: "/etc/rsc-server/certs/ca.crt"
-  # Kräv att klienter autentiserar med certifikat
-  require_client_cert: true
-  # TLS version (minimum)
-  min_tls_version: "1.3"
+```bash
+rsc-server --help
+# Visar alla tillgängliga argument
+```
 
-vpcd:
-  # Path till vpcd binary
-  binary: "/usr/local/bin/vpcd"
-  # Directory för vpcd sockets
-  socket_dir: "/var/run/rsc-server/vpcd"
-  # Timeout för vpcd operations
-  timeout: 30s
-  # vpcd port range (en port per klient)
-  port_range_start: 35963
-  port_range_end: 36963
+**Viktiga argument:**
 
-logging:
-  # Log level: error, warn, info, debug, trace
-  level: "info"
-  # Log till fil
-  file: "/var/log/rsc-server/rsc-server.log"
-  # Även logga till stdout (för systemd journal)
-  stdout: true
-  # Strukturerad logging (JSON format)
-  json: false
+| Argument | Default | Beskrivning |
+|----------|---------|-------------|
+| `--port` | 8443 | Port att lyssna på |
+| `--bind` | 0.0.0.0 | Adress att binda till |
+| `--tls-cert` | - | Server certifikat (PEM) |
+| `--tls-key` | - | Server privat nyckel (PEM) |
+| `--tls-ca` | - | CA för klient-verifiering (mTLS) |
+| `--vpcd-host` | 127.0.0.1 | vpcd host |
+| `--vpcd-port` | 35963 | vpcd port |
+| `--auto-vpcd` | false | Anslut automatiskt till vpcd |
+| `--log-level` | info | Log level (error/warn/info/debug/trace) |
+
+**Exempel - starta server med TLS:**
+```bash
+rsc-server \
+  --port 8443 \
+  --tls-cert /etc/rsc-server/certs/server.crt \
+  --tls-key /etc/rsc-server/certs/server.key \
+  --tls-ca /etc/rsc-server/certs/ca.crt \
+  --auto-vpcd \
+  --log-level info
+```
 
 # Optional: metrics och monitoring
 metrics:
@@ -467,50 +460,42 @@ metrics:
 
 ### 5.2 Client Configuration
 
-**Skapa `/etc/rsc-client/config.yaml`:**
-```yaml
-server:
-  # Server hostname eller IP
-  # MÅSTE matcha CN i server-certifikatet!
-  host: "your-server.example.com"
-  # Port
-  port: 8443
+Klienten konfigureras via kommandoradsargument:
 
-tls:
-  # Klient certifikat och nyckel
-  client_cert: "/etc/rsc-client/certs/client.crt"
-  client_key: "/etc/rsc-client/certs/client.key"
-  # CA för att verifiera server-certifikat
-  ca_cert: "/etc/rsc-client/certs/ca.crt"
-  # Verifiera server certificate
-  verify_server: true
+```bash
+rsc-client --help
+# Visar alla tillgängliga argument
+```
 
-client:
-  # Unikt ID för denna klient (default: hostname)
-  client_id: "laptop-home"
+**Viktiga argument:**
 
-  # Optional: Filtrera vilka readers som ska forwardas
-  # Om tom: alla readers forwardas
-  reader_filter:
-    - "Yubico"
-    # - "Gemalto"
+| Argument | Default | Beskrivning |
+|----------|---------|-------------|
+| `--server` | http://127.0.0.1:8443 | Server URL (använd https:// för TLS) |
+| `--tls-ca` | - | CA certifikat för server-verifiering |
+| `--tls-cert` | - | Klient certifikat för mTLS |
+| `--tls-key` | - | Klient privat nyckel för mTLS |
+| `--client-id` | hostname | Unikt klient-ID |
+| `--reconnect-delay` | 1 | Initial reconnect delay (sekunder) |
+| `--reconnect-max-delay` | 60 | Max reconnect delay (sekunder) |
+| `--no-reconnect` | false | Inaktivera automatisk reconnect |
+| `--log-level` | info | Log level |
 
-  # Reconnect settings
-  reconnect_interval: 5s
-  reconnect_max_attempts: 0  # 0 = oändligt
-  reconnect_backoff_max: 60s  # Max backoff time
+**Exempel - anslut till server med TLS:**
+```bash
+rsc-client \
+  --server https://your-server.example.com:8443 \
+  --tls-ca /etc/rsc-client/certs/ca.crt \
+  --tls-cert /etc/rsc-client/certs/client.crt \
+  --tls-key /etc/rsc-client/certs/client.key \
+  --log-level info
+```
 
-  # Heartbeat för att hålla connection vid liv
-  heartbeat_interval: 30s
-
-  # Timeout för operationer
-  operation_timeout: 10s
-
-logging:
-  level: "info"
-  file: "/var/log/rsc-client/rsc-client.log"
-  stdout: true
-  json: false
+**Exempel - enkel anslutning (endast server-cert verifiering):**
+```bash
+rsc-client \
+  --server https://your-server.example.com:8443 \
+  --tls-ca ~/server.crt
 ```
 
 ---
@@ -722,21 +707,25 @@ pcsc_scan
 
 **Debug:**
 ```bash
-# På server: kolla rsc-server logs
+# Kolla att vpcd-drivern är installerad
+find /usr -name "libifdvpcd.so" 2>/dev/null
+# Ska visa sökväg till drivern
+
+# Kolla att vpcd är konfigurerad i pcscd
+cat /etc/reader.conf.d/vpcd.conf
+
+# Kolla pcscd logs
+sudo journalctl -u pcscd -n 50
+
+# Kolla rsc-server logs
 sudo journalctl -u rsc-server -n 50
-
-# Kolla att vpcd startade
-ps aux | grep vpcd
-
-# Kolla vpcd sockets
-ls -la /var/run/rsc-server/vpcd/
 ```
 
 **Lösningar:**
-- Restart rsc-server: `sudo systemctl restart rsc-server`
+- Kontrollera att vpcd.conf finns och har rätt LIBPATH
 - Restart pcscd: `sudo systemctl restart pcscd`
-- Kontrollera att vpcd binary finns: `which vpcd`
-- Kontrollera permissions på socket_dir
+- Restart rsc-server: `sudo systemctl restart rsc-server`
+- Kolla att rsc-server har `--auto-vpcd` flaggan
 
 ### Problem: APDU errors
 
