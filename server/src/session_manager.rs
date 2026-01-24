@@ -124,6 +124,21 @@ impl Session {
 
     /// Send a command to the client and wait for response
     pub async fn send_command(&mut self, command: rsc_protocol::command_request::Command, reader_name: &str) -> Result<CommandResponse, String> {
+        let response_rx = self.send_command_async(command, reader_name).await?;
+
+        // Wait for response (with timeout)
+        match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err("Response channel closed".to_string()),
+            Err(_) => {
+                Err("Command timed out".to_string())
+            }
+        }
+    }
+
+    /// Send a command to the client and return the response receiver
+    /// This allows the caller to release any locks before waiting for the response
+    pub async fn send_command_async(&mut self, command: rsc_protocol::command_request::Command, reader_name: &str) -> Result<oneshot::Receiver<CommandResponse>, String> {
         let channel = self.command_channel.as_mut()
             .ok_or_else(|| "Client command channel not connected".to_string())?;
 
@@ -148,16 +163,7 @@ impl Session {
 
         debug!("Sent command {} to client", command_id);
 
-        // Wait for response (with timeout)
-        match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
-            Ok(Ok(response)) => Ok(response),
-            Ok(Err(_)) => Err("Response channel closed".to_string()),
-            Err(_) => {
-                // Remove pending command on timeout
-                channel.pending.remove(&command_id);
-                Err("Command timed out".to_string())
-            }
-        }
+        Ok(response_rx)
     }
 
     /// Handle a response from the client
