@@ -3,7 +3,7 @@
 //! Provides utilities for setting up TLS and mTLS (mutual TLS) for
 //! secure communication between rsc-client and rsc-server.
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+// Note: Using full paths (rustls::pki_types::*) in function signatures for clarity
 use rustls_pemfile::{certs, private_key};
 use std::fs::File;
 use std::io::BufReader;

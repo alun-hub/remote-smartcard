@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_connection(socket: TcpStream) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("rsc-server connected! You can now send commands.");
     println!("\nCommands:");
     println!("  p  - Power On (get ATR)");
