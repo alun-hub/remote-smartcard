@@ -66,8 +66,8 @@ sudo apt-get install -y pcscd libpcsclite-dev pcsc-tools
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# Install protobuf compiler
-sudo apt-get install -y protobuf-compiler
+# Install protobuf compiler and PC/SC dev libraries
+sudo apt-get install -y protobuf-compiler libpcsclite-dev
 
 # Clone and build
 git clone https://github.com/alun-hub/remote-smartcard.git

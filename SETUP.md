@@ -227,10 +227,10 @@ cargo --version
 git clone https://github.com/alun-hub/remote-smartcard.git
 cd remote-smartcard
 
-# Installera protobuf compiler
-sudo apt-get install -y protobuf-compiler  # Debian/Ubuntu
+# Installera protobuf compiler och PC/SC dev libraries
+sudo apt-get install -y protobuf-compiler libpcsclite-dev  # Debian/Ubuntu
 # eller
-sudo dnf install -y protobuf-compiler      # RHEL/Fedora
+sudo dnf install -y protobuf-compiler pcsc-lite-devel      # RHEL/Fedora
 
 # Bygg hela projektet (client, server, och tools)
 cargo build --release

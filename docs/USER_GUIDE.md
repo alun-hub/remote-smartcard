@@ -85,7 +85,7 @@ cd ~
 # Build rsc-server (requires Rust)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
-sudo apt-get install -y protobuf-compiler
+sudo apt-get install -y protobuf-compiler libpcsclite-dev
 
 git clone https://github.com/alun-hub/remote-smartcard.git
 cd remote-smartcard
@@ -214,10 +214,10 @@ sudo systemctl start pcscd
 **On the client:**
 ```bash
 # Debian/Ubuntu
-sudo apt-get install pcscd libpcsclite1 opensc
+sudo apt-get install pcscd libpcsclite-dev opensc pcsc-tools
 
 # Fedora/RHEL
-sudo dnf install pcsc-lite opensc
+sudo dnf install pcsc-lite pcsc-lite-devel opensc pcsc-tools
 
 # Start pcscd
 sudo systemctl enable pcscd
