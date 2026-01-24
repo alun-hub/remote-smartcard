@@ -1,0 +1,52 @@
+[Unit]
+Description=Remote Smartcard Server
+Documentation=https://github.com/alun-hub/remote-smartcard
+After=network-online.target pcscd.service
+Wants=network-online.target
+Requires=pcscd.service
+
+[Service]
+Type=simple
+User=rsc-server
+Group=rsc-server
+ExecStart=/usr/local/bin/rsc-server \
+    --port 8443 \
+    --bind 0.0.0.0 \
+    --tls-cert /etc/rsc-server/certs/server.crt \
+    --tls-key /etc/rsc-server/certs/server.key \
+    --tls-ca /etc/rsc-server/certs/ca.crt \
+    --log-level info
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+
+# Allow read access to certificates
+ReadOnlyPaths=/etc/rsc-server
+
+# Allow write access to runtime directory
+RuntimeDirectory=rsc-server
+RuntimeDirectoryMode=0750
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rsc-server
+
+[Install]
+WantedBy=multi-user.target

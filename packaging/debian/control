@@ -1,0 +1,31 @@
+Source: remote-smartcard
+Section: net
+Priority: optional
+Maintainer: Remote Smartcard Contributors <noreply@example.com>
+Build-Depends: debhelper (>= 11), cargo, rustc, protobuf-compiler, libpcsclite-dev
+Standards-Version: 4.5.1
+Homepage: https://github.com/alun-hub/remote-smartcard
+Vcs-Git: https://github.com/alun-hub/remote-smartcard.git
+
+Package: rsc-server
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, pcscd, libpcsclite1
+Recommends: vsmartcard-vpcd
+Description: Remote Smartcard Server
+ Allows remote smartcards to be used as if they were locally connected.
+ This package contains the server component that runs on the machine
+ where applications need to access the smartcard.
+
+Package: rsc-client
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, pcscd, libpcsclite1
+Description: Remote Smartcard Client
+ Connects local smartcards to a remote rsc-server.
+ This package contains the client component that runs on the machine
+ where the physical smartcard is connected.
+
+Package: rsc-tools
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Remote Smartcard Tools
+ Certificate generation and testing tools for Remote Smartcard.

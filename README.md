@@ -1,387 +1,252 @@
 # Remote Smartcard (rsc)
 
-Ett säkert och transparent system för att använda lokala smartkort och Yubikeys på fjärrsystem via nätverket.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org/)
 
-## Översikt
+Use your local smartcard or Yubikey on remote servers as if it were physically connected.
 
-Remote Smartcard (rsc) gör det möjligt att använda ett smartkort som sitter i din lokala dator på en fjärrserver, som om kortet var fysiskt anslutet där. Detta är användbart för:
+## Overview
 
-- SSH-autentisering med smartkort till servrar
-- Signering av git commits med Yubikey från remote development environments
-- Användning av certifikat från smartkort i webbläsare på remote desktop
-- Alla andra use cases där PC/SC används
+Remote Smartcard enables transparent smartcard access over the network. Applications on a remote server see a virtual smartcard reader with your card, allowing you to:
 
-## Funktioner
+- **SSH authentication** with Yubikey from remote servers
+- **Git commit signing** from cloud development environments
+- **Browser client certificates** on remote desktops
+- **VPN authentication** and code signing from anywhere
 
-- ✅ **Transparent**: Applikationer på servern ser vanlig PC/SC reader
-- ✅ **Säker**: Mutual TLS (mTLS) kryptering, inget credentials i transit
-- ✅ **Stabil**: Automatic reconnect, heartbeat, network resilience
-- ✅ **Enkelt**: Minimal konfiguration, systemd integration
-- ✅ **Standard**: Använder pcscd, vpcd, och andra etablerade komponenter
-- ✅ **Effektivt**: gRPC/protobuf för minimal overhead
-- ✅ **Multi-reader**: Stödjer flera smartcard readers samtidigt
+## Features
 
-## Arkitektur
+- **Transparent**: Applications see a standard PC/SC reader - no modifications needed
+- **Secure**: Mutual TLS (mTLS) encryption, PIN never leaves your local machine
+- **Reliable**: Automatic reconnection with exponential backoff
+- **Efficient**: gRPC/protobuf for minimal overhead
+- **Multi-reader**: Support for multiple smartcard readers
+- **Cross-platform**: Linux server and client (Windows/macOS clients planned)
 
+## Quick Start
+
+### Server (where you want to use the smartcard)
+
+```bash
+# Install
+curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-server-linux-amd64
+chmod +x rsc-server-linux-amd64
+sudo mv rsc-server-linux-amd64 /usr/local/bin/rsc-server
+
+# Install vpcd (virtual smartcard reader)
+sudo apt-get install vsmartcard-vpcd  # Debian/Ubuntu
+
+# Generate certificates and start
+mkdir ~/certs && cd ~/certs
+openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \
+    -days 365 -nodes -subj "/CN=$(hostname)"
+
+rsc-server --port 8443 --tls-cert server.crt --tls-key server.key
 ```
-[Lokal Dator] --[TLS/gRPC]--> [Fjärrserver]
-  Yubikey/                        Application
-  Smartcard                           |
-     |                            pcscd
-   pcscd                              |
-     |                          vpcd (virtual reader)
- rsc-client ===============> rsc-server
+
+### Client (where your smartcard is connected)
+
+```bash
+# Install
+curl -LO https://github.com/alun-hub/remote-smartcard/releases/latest/download/rsc-client-linux-amd64
+chmod +x rsc-client-linux-amd64
+sudo mv rsc-client-linux-amd64 /usr/local/bin/rsc-client
+
+# Copy server certificate and connect
+scp server:~/certs/server.crt ~/
+rsc-client --server https://SERVER_IP:8443 --tls-ca ~/server.crt
 ```
 
-Se [ARCHITECTURE.md](ARCHITECTURE.md) för detaljerad teknisk dokumentation.
+### Verify
 
-## Snabbstart
+On the server:
+```bash
+pcsc_scan
+# Reader 0: Virtual PCD (Yubico YubiKey)
+#   Card state: Card inserted
+#   ATR: 3B 8D 80 01 ...
+```
 
-### Förutsättningar
+## Documentation
 
-**På båda klient och server:**
-- Linux (Debian/Ubuntu/RHEL/Arch)
-- pcscd installerat
-- OpenSSL
+- **[User Guide](docs/USER_GUIDE.md)** - Comprehensive installation, configuration, and usage examples
+- **[Setup Guide](SETUP.md)** - Detailed step-by-step setup instructions
+- **[Architecture](ARCHITECTURE.md)** - Technical architecture and design
+- **[Development](DEVELOPMENT.md)** - Development guide and contribution information
 
-**På klienten:**
-- Fysiskt smartkort eller Yubikey ansluten
+## Installation
 
-**På servern:**
-- vpcd installerat (del av vsmartcard)
+### From Binary Release
 
-### Installation
+Download from [Releases](https://github.com/alun-hub/remote-smartcard/releases):
 
-#### 1. Installera dependencies
+```bash
+# Server
+tar xzf rsc-server-linux-amd64.tar.gz
+sudo mv rsc-server /usr/local/bin/
+
+# Client
+tar xzf rsc-client-linux-amd64.tar.gz
+sudo mv rsc-client /usr/local/bin/
+```
+
+### From Package
 
 **Debian/Ubuntu:**
 ```bash
-# Server
-sudo apt-get install pcscd vpcsc libpcsclite1
-
-# Klient
-sudo apt-get install pcscd libpcsclite1
+sudo dpkg -i rsc-server_0.1.0_amd64.deb  # Server
+sudo dpkg -i rsc-client_0.1.0_amd64.deb  # Client
 ```
 
-**RHEL/CentOS/Fedora:**
+**RHEL/Fedora:**
 ```bash
-# Server
-sudo dnf install pcsc-lite vpcd
-
-# Klient
-sudo dnf install pcsc-lite
+sudo rpm -i rsc-server-0.1.0-1.x86_64.rpm  # Server
+sudo rpm -i rsc-client-0.1.0-1.x86_64.rpm  # Client
 ```
 
-#### 2. Installera rsc (när färdigutvecklad)
+### From Source
 
 ```bash
-# Från DEB package
-sudo dpkg -i rsc-server_1.0.0_amd64.deb  # På server
-sudo dpkg -i rsc-client_1.0.0_amd64.deb  # På klient
+# Prerequisites
+sudo apt-get install protobuf-compiler libpcsclite-dev
 
-# Eller från source
-git clone https://github.com/yourusername/remote-smartcard
+# Build
+git clone https://github.com/alun-hub/remote-smartcard.git
 cd remote-smartcard
 cargo build --release
+
+# Install
 sudo cp target/release/rsc-server /usr/local/bin/
 sudo cp target/release/rsc-client /usr/local/bin/
 ```
 
-#### 3. Generera certifikat
+## Usage Examples
 
-**På server:**
+### SSH with Yubikey
+
 ```bash
-# Skapa CA och server certifikat
-sudo rsc-keygen --type server --output /etc/rsc-server/certs
-
-# Detta skapar:
-# - ca.crt (CA certificate - kopiera till klienter)
-# - server.crt (Server certificate)
-# - server.key (Server private key)
+# On remote server (with rsc-server running)
+ssh -I /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so user@target-host
+# PIN prompt appears on your LOCAL machine!
 ```
 
-**På klient:**
+### Git Signing
+
 ```bash
-# Skapa klient certifikat (behöver ca.crt och ca.key från server)
-sudo rsc-keygen --type client \
-  --ca-cert /path/to/ca.crt \
-  --ca-key /path/to/ca.key \
-  --output /etc/rsc-client/certs
+# Configure git on remote server
+git config --global user.signingkey YOUR_KEY_ID
+git config --global commit.gpgsign true
 
-# Kopiera CA cert från server
-scp server:/etc/rsc-server/certs/ca.crt /etc/rsc-client/certs/
+# Commits are now signed with your local Yubikey
+git commit -m "Signed from remote"
 ```
 
-#### 4. Konfigurera
-
-**Server** (`/etc/rsc-server/config.yaml`):
-```yaml
-server:
-  bind_address: "0.0.0.0"
-  port: 8443
-
-tls:
-  server_cert: "/etc/rsc-server/certs/server.crt"
-  server_key: "/etc/rsc-server/certs/server.key"
-  ca_cert: "/etc/rsc-server/certs/ca.crt"
-  require_client_cert: true
-
-logging:
-  level: info
-```
-
-**Klient** (`/etc/rsc-client/config.yaml`):
-```yaml
-server:
-  host: "your-server.example.com"
-  port: 8443
-
-tls:
-  client_cert: "/etc/rsc-client/certs/client.crt"
-  client_key: "/etc/rsc-client/certs/client.key"
-  ca_cert: "/etc/rsc-client/certs/ca.crt"
-
-logging:
-  level: info
-```
-
-#### 5. Starta services
+### Running as Service
 
 ```bash
 # Server
 sudo systemctl enable rsc-server
 sudo systemctl start rsc-server
 
-# Klient
+# Client
 sudo systemctl enable rsc-client
 sudo systemctl start rsc-client
 ```
 
-#### 6. Verifiera
+## Architecture
 
-**På servern:**
-```bash
-# Lista readers (ska visa virtual reader med ditt kort)
-pcsc_scan
-
-# Output bör visa:
-# Reader 0: Virtual PCD 00 00
-#   Card state: Card inserted
-#   ATR: 3B 8A 80 01 ...
+```
+┌─────────────┐          TLS/gRPC          ┌─────────────┐
+│   Client    │◄────────────────────────────►│   Server    │
+│             │                              │             │
+│  Yubikey ───┤                              ├─── vpcd ────┤
+│    pcscd    │                              │    pcscd    │
+└─────────────┘                              └─────────────┘
+                                                    │
+                                              Applications
+                                             (SSH, GPG, etc)
 ```
 
-**Testa med riktig applikation:**
-```bash
-# Exempel: SSH med smartcard
-ssh-keygen -D /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so -e
+## Configuration
 
-# Exempel: Lista certifikat med pkcs11-tool
-pkcs11-tool --module /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so --list-objects
-```
+### Server Options
 
-## Användning
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port` | 8443 | Port to listen on |
+| `--bind` | 0.0.0.0 | Address to bind to |
+| `--tls-cert` | - | Server certificate (PEM) |
+| `--tls-key` | - | Server private key (PEM) |
+| `--tls-ca` | - | CA for client verification |
+| `--log-level` | info | Log level (error/warn/info/debug/trace) |
 
-Efter installation är systemet transparent. Alla applikationer på servern som använder PC/SC kan nu använda ditt remote smartkort:
+### Client Options
 
-### SSH med Smartcard
-```bash
-# På servern
-ssh-keygen -D /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so -e
-# Lägger till pubkey till authorized_keys
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--server` | http://127.0.0.1:8443 | Server URL (use https:// for TLS) |
+| `--tls-ca` | - | CA certificate for server verification |
+| `--tls-cert` | - | Client certificate for mTLS |
+| `--tls-key` | - | Client private key for mTLS |
+| `--reconnect-delay` | 1 | Initial reconnect delay (seconds) |
+| `--reconnect-max-delay` | 60 | Max reconnect delay (seconds) |
+| `--no-reconnect` | false | Disable automatic reconnection |
 
-# SSH till annan host från servern med smartcard auth
-ssh -I /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so user@destination
-```
+## Security
 
-### Git Signing med Yubikey
-```bash
-# På servern
-git config --global gpg.program gpg2
-git config --global user.signingkey "keyid från smartcard"
-git config --global commit.gpgsign true
+- **TLS 1.3** with strong cipher suites
+- **Mutual TLS (mTLS)** - both client and server authenticate
+- **PIN never transmitted** - entered locally, only encrypted APDUs sent
+- **Session isolation** - each client gets separate session
 
-# Commits kommer nu signeras med Yubikey från din lokala dator
-git commit -m "Signed from remote with local Yubikey!"
-```
+See [Security Documentation](docs/USER_GUIDE.md#security-best-practices) for best practices.
 
-### Firefox med Client Certificates
-```bash
-# Firefox på servern kommer automatiskt se smartcard reader
-# Gå till Settings → Privacy & Security → Security Devices
-# Lägg till OpenSC PKCS#11 module om behövs
-```
+## Supported Smartcards
 
-## Felsökning
-
-### Klienten kan inte connecta
-```bash
-# Kontrollera att server lyssnar
-sudo netstat -tlnp | grep 8443
-
-# Kontrollera client logs
-sudo journalctl -u rsc-client -f
-
-# Testa TLS connection
-openssl s_client -connect server:8443 \
-  -cert /etc/rsc-client/certs/client.crt \
-  -key /etc/rsc-client/certs/client.key \
-  -CAfile /etc/rsc-client/certs/ca.crt
-```
-
-### Ingen reader syns på servern
-```bash
-# Kontrollera server logs
-sudo journalctl -u rsc-server -f
-
-# Kontrollera att vpcd körs
-ps aux | grep vpcd
-
-# Kontrollera att pcscd ser vpcd reader
-systemctl restart pcscd
-pcsc_scan
-```
-
-### Kort fungerar inte korrekt
-```bash
-# Kontrollera ATR på klient
-pcsc_scan  # På klient
-
-# Kontrollera ATR på server
-pcsc_scan  # På server
-
-# Ska vara identiska. Om inte, kolla logs för APDU errors.
-```
-
-### Network issues
-```bash
-# Testa latency
-ping server
-
-# Högre latency (>100ms) kan ge timeout i vissa applikationer
-# Justera timeout i config:
-# client:
-#   operation_timeout: 10s  # Öka vid hög latency
-```
-
-## Säkerhet
-
-### Best Practices
-
-1. **Använd starka certifikat**: Minimum 2048-bit RSA eller 256-bit ECC
-2. **Begränsa server access**: Använd firewall, endast tillåt betrodda klienter
-3. **Rotera certifikat**: Byt certifikat regelbundet (årligen)
-4. **Monitera logs**: Övervaka för onormala connection patterns
-5. **Använd separate network**: Kör på VPN eller privat nätverk om möjligt
-
-### Säkerhetsmodell
-
-- **Krypterad transport**: All data krypteras med TLS 1.3
-- **Mutual authentication**: Både klient och server verifierar varandra
-- **No credential exposure**: PIN/password skickas ALDRIG över nätverket
-  - PIN hanteras lokalt på klienten av pcscd
-  - Endast APDU responses skickas över nätverk
-- **Session isolation**: Varje klient får egen isolerad session
-
-### Vad som INTE skyddas mot
-
-- **Compromised server**: Om servern är komprometterad kan attacker skicka APDU till ditt kort
-  - Detta är inherent i designen - servern måste kunna använda kortet
-  - Använd endast betrodda servrar
-- **Replay attacks**: Teoretiskt möjligt (men smartcards har ofta replay-skydd)
-- **Timing attacks**: Möjligt att mäta timing av operationer
-
-## Performance
-
-Typiska latency-värden:
-
-| Operation | Local | Remote (LAN) | Remote (VPN 50ms RTT) |
-|-----------|-------|--------------|------------------------|
-| ATR Read  | <1ms  | 5-10ms       | 55-60ms                |
-| APDU      | 1-5ms | 10-20ms      | 60-70ms                |
-| Sign      | 50ms  | 60-70ms      | 110-120ms              |
-
-**Rekommendationer**:
-- LAN: Perfekt, nästan ingen märkbar skillnad
-- VPN <50ms: Bra, fungerar för de flesta use cases
-- VPN >100ms: OK för många use cases, men vissa timeout-känsliga appar kan ha problem
-- Internet >200ms: Funkar men långsamt, öka timeouts
+Any PC/SC compatible smartcard:
+- Yubikey (all models with smartcard functionality)
+- OpenPGP cards
+- PIV cards
+- JavaCards
+- Most bank/government ID cards
 
 ## Roadmap
 
-### Version 1.0 (Proof of Concept)
-- [x] Arkitektur och design
-- [ ] Grundläggande rsc-client (Rust)
-- [ ] Grundläggande rsc-server (Rust)
-- [ ] gRPC protokoll
-- [ ] APDU forwarding
-- [ ] mTLS security
-- [ ] Basic testing
-
-### Version 1.1 (Production Ready)
-- [ ] Reconnect logic
-- [ ] Heartbeat
-- [ ] Full error handling
-- [ ] systemd integration
-- [ ] Config files
-- [ ] Logging
-- [ ] Debian/RPM packages
-- [ ] Setup scripts
-- [ ] Dokumentation
-
-### Version 2.0 (Enterprise)
-- [ ] Multi-reader support
-- [ ] Reader filtering
-- [ ] Access control (per-client ACLs)
-- [ ] Metrics & monitoring
-- [ ] Web UI för admin
-- [ ] Auto-discovery (mDNS/Avahi)
+- [x] Basic APDU forwarding
+- [x] TLS/mTLS security
+- [x] Automatic reconnection
+- [x] vpcd integration
+- [x] Systemd integration
 - [ ] Windows client
 - [ ] macOS client
+- [ ] Web UI for monitoring
+- [ ] Multiple simultaneous clients per reader
 
-### Future
-- [ ] Hardware Security Module (HSM) support
-- [ ] Multiple simultaneous clients
-- [ ] Load balancing
-- [ ] Clustering
-- [ ] REST API
+## Contributing
 
-## Bidra
+Contributions are welcome! See [DEVELOPMENT.md](DEVELOPMENT.md) for guidelines.
 
-Projektet är öppen källkod och bidrag är välkomna!
+```bash
+# Setup development environment
+git clone https://github.com/alun-hub/remote-smartcard.git
+cd remote-smartcard
+cargo build
+cargo test
+```
 
-1. Fork repository
-2. Skapa feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push till branch (`git push origin feature/amazing-feature`)
-5. Öppna Pull Request
+## License
 
-## Licens
-
-TBD - förmodligen MIT eller Apache 2.0
-
-## Support & Community
-
-- **Issues**: https://github.com/yourusername/remote-smartcard/issues
-- **Discussions**: https://github.com/yourusername/remote-smartcard/discussions
-- **Wiki**: https://github.com/yourusername/remote-smartcard/wiki
+MIT License - see [LICENSE-MIT](LICENSE-MIT)
 
 ## Acknowledgments
 
-Detta projekt bygger på följande fantastiska open source-projekt:
+Built with:
+- [pcsc-lite](https://pcsclite.apdu.fr/) - PC/SC implementation
+- [vsmartcard](https://frankmorgner.github.io/vsmartcard/) - Virtual smartcard
+- [tonic](https://github.com/hyperium/tonic) - gRPC for Rust
+- [tokio](https://tokio.rs/) - Async runtime
 
-- **pcsc-lite**: https://pcsclite.apdu.fr/
-- **vsmartcard/vpcd**: https://frankmorgner.github.io/vsmartcard/
-- **gRPC**: https://grpc.io/
-- **Rust**: https://rust-lang.org/
-- **OpenSC**: https://github.com/OpenSC/OpenSC
+## Support
 
-## Authors
-
-- Din Namn <din.email@example.com>
-
-## Relaterade Projekt
-
-- **OpenSC**: Smartcard tools och libraries
-- **YubiKey Manager**: Hantera Yubikeys
-- **GnuPG**: OpenPGP implementation med smartcard support
-- **pam_pkcs11**: PAM module för smartcard auth
+- **Issues**: [GitHub Issues](https://github.com/alun-hub/remote-smartcard/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/alun-hub/remote-smartcard/discussions)

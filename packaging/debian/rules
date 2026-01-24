@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --workspace
+
+override_dh_auto_install:
+	# Server
+	install -D -m 755 target/release/rsc-server debian/rsc-server/usr/bin/rsc-server
+	install -D -m 644 systemd/rsc-server.service debian/rsc-server/lib/systemd/system/rsc-server.service
+	install -d -m 755 debian/rsc-server/etc/rsc-server/certs
+
+	# Client
+	install -D -m 755 target/release/rsc-client debian/rsc-client/usr/bin/rsc-client
+	install -D -m 644 systemd/rsc-client.service debian/rsc-client/lib/systemd/system/rsc-client.service
+	install -d -m 755 debian/rsc-client/etc/rsc-client/certs
+
+	# Tools
+	install -D -m 755 target/release/rsc-keygen debian/rsc-tools/usr/bin/rsc-keygen
+	install -D -m 755 scripts/generate-client-cert.sh debian/rsc-tools/usr/bin/rsc-generate-client-cert
+
+override_dh_auto_test:
+	cargo test --release
+
+override_dh_auto_clean:
+	cargo clean

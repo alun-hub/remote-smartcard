@@ -1,0 +1,32 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Create system user for server
+        if dpkg -s rsc-server >/dev/null 2>&1; then
+            if ! getent passwd rsc-server >/dev/null; then
+                useradd --system --no-create-home --shell /usr/sbin/nologin rsc-server
+            fi
+            chown -R rsc-server:rsc-server /etc/rsc-server
+            chmod 700 /etc/rsc-server/certs
+        fi
+
+        # Create system user for client
+        if dpkg -s rsc-client >/dev/null 2>&1; then
+            if ! getent passwd rsc-client >/dev/null; then
+                useradd --system --no-create-home --shell /usr/sbin/nologin rsc-client
+            fi
+            # Add to scard group for PC/SC access
+            usermod -a -G scard rsc-client 2>/dev/null || true
+            chown -R rsc-client:rsc-client /etc/rsc-client
+            chmod 700 /etc/rsc-client/certs
+        fi
+
+        systemctl daemon-reload
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

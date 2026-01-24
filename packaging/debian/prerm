@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|upgrade)
+        # Stop services before removal
+        if dpkg -s rsc-server >/dev/null 2>&1; then
+            systemctl stop rsc-server 2>/dev/null || true
+            systemctl disable rsc-server 2>/dev/null || true
+        fi
+
+        if dpkg -s rsc-client >/dev/null 2>&1; then
+            systemctl stop rsc-client 2>/dev/null || true
+            systemctl disable rsc-client 2>/dev/null || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
