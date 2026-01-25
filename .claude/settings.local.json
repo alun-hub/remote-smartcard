@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(where:*)",
+      "Bash(winget search:*)",
+      "Bash(choco:*)",
+      "Bash(choco search:*)",
+      "Bash(curl:*)",
+      "Bash(unzip:*)",
+      "Bash(cargo build:*)",
+      "Bash(timeout 3 cargo run:*)",
+      "Bash(cargo run:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Start-Process -NoNewWindow -FilePath ''cargo'' -ArgumentList ''run -p rsc-server -- --port 8443 --bind 127.0.0.1'' -RedirectStandardOutput ''server.log'' -RedirectStandardError ''server_err.log''\")",
+      "Bash(powershell -Command \"Start-Process -NoNewWindow -FilePath ''cargo'' -ArgumentList ''run -p rsc-client -- --server http://127.0.0.1:8443'' -RedirectStandardOutput ''client.log'' -RedirectStandardError ''client_err.log''\")",
+      "Bash(tasklist:*)",
+      "Bash(git reset:*)",
+      "WebFetch(domain:frankmorgner.github.io)",
+      "Bash(git restore:*)"
+    ]
+  }
+}

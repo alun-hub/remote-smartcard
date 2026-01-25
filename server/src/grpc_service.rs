@@ -326,21 +326,21 @@ impl RemoteSmartcard for SmartcardService {
         tokio::spawn(async move {
             let mut session_id: Option<String> = None;
 
-            debug!("Command channel handler task started, waiting for messages...");
+            info!("Command channel handler task started, waiting for messages...");
 
             while let Some(result) = stream.next().await {
-                debug!("Command channel received message from stream");
+                info!("Command channel received message from stream");
                 match result {
                     Ok(response) => {
-                        debug!("Got response with command_id={}", response.command_id);
+                        info!("Got response with command_id={}", response.command_id);
                         // First message sets up the session
                         if session_id.is_none() {
                             session_id = Some(response.session_id.clone());
 
                             // Register command channel with session
-                            debug!("Acquiring sessions lock for initial setup...");
+                            info!("Acquiring sessions lock for initial setup...");
                             let mut sessions_guard = sessions.write().await;
-                            debug!("Got sessions lock for initial setup");
+                            info!("Got sessions lock for initial setup");
                             if let Some(session) = sessions_guard.get_session_mut(&response.session_id) {
                                 session.set_command_channel(cmd_tx_clone.clone());
                                 info!("Command channel connected for session: {}", response.session_id);
@@ -352,9 +352,9 @@ impl RemoteSmartcard for SmartcardService {
 
                         // Handle the response
                         if response.command_id > 0 {
-                            debug!("Acquiring sessions lock to handle response {}...", response.command_id);
+                            info!("Acquiring sessions lock to handle response {}...", response.command_id);
                             let mut sessions_guard = sessions.write().await;
-                            debug!("Got sessions lock for response {}", response.command_id);
+                            info!("Got sessions lock for response {}", response.command_id);
                             if let Some(session) = sessions_guard.get_session_mut(session_id.as_ref().unwrap()) {
                                 if let Err(e) = session.handle_response(response) {
                                     warn!("Failed to handle response: {}", e);
