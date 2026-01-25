@@ -13,11 +13,36 @@ use rsc_protocol::{
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::{info, debug, error, warn};
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use futures::Stream;
 
 use crate::error::{ClientError, Result};
 use crate::pcsc_reader;
 use hex;
+
+/// A stream that keeps its sender alive to prevent the channel from closing.
+/// This is necessary because tonic's bidirectional streaming closes when the
+/// input stream ends.
+struct KeepAliveStream {
+    receiver: mpsc::Receiver<CommandResponse>,
+    #[allow(dead_code)]
+    sender: mpsc::Sender<CommandResponse>, // Prevents channel from closing
+}
+
+impl KeepAliveStream {
+    fn new(sender: mpsc::Sender<CommandResponse>, receiver: mpsc::Receiver<CommandResponse>) -> Self {
+        Self { receiver, sender }
+    }
+}
+
+impl Stream for KeepAliveStream {
+    type Item = CommandResponse;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.receiver).poll_recv(cx)
+    }
+}
 
 /// gRPC client wrapper for Remote Smartcard service
 pub struct GrpcClient {
@@ -208,7 +233,6 @@ impl GrpcClient {
             use tokio_stream::StreamExt;
 
             // Create channel for sending responses to the server
-            // IMPORTANT: response_tx must stay alive to keep the stream open!
             let (response_tx, response_rx) = mpsc::channel::<CommandResponse>(100);
 
             // Send initial message to register the session
@@ -225,8 +249,11 @@ impl GrpcClient {
                 return;
             }
 
+            // Create a KeepAliveStream that holds onto the sender
+            // This prevents the channel from closing when all messages are read
+            let stream = KeepAliveStream::new(response_tx, response_rx);
+
             // Start the bidirectional stream
-            let stream = ReceiverStream::new(response_rx);
             let mut cmd_stream = match client_clone.command_channel(stream).await {
                 Ok(response) => response.into_inner(),
                 Err(e) => {
@@ -235,10 +262,6 @@ impl GrpcClient {
                     return;
                 }
             };
-
-            // Keep response_tx alive - don't drop it!
-            // We use a separate variable to make this explicit
-            let _keep_stream_open = response_tx;
 
             info!("Command channel handler started for session: {}", session_id_clone);
             info!("Waiting for commands from server...");
