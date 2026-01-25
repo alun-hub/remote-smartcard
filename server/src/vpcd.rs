@@ -429,20 +429,28 @@ impl VpcdManager {
         tokio::spawn(async move {
             let mut client = VpcdClient::new(sessions);
             client.set_target(session_id.clone(), reader_name.clone());
+            let mut consecutive_errors = 0u32;
 
             loop {
                 match client.connect(&vpcd_host, port).await {
                     Ok(_) => {
-                        info!("vpcd client for {} disconnected", reader_name);
+                        // Normal disconnect (pcscd calls vicc_eject periodically)
+                        // Reconnect immediately to maintain card presence
+                        debug!("vpcd client for {} disconnected, reconnecting immediately", reader_name);
+                        consecutive_errors = 0;
                     }
                     Err(e) => {
-                        error!("vpcd client error for {}: {}", reader_name, e);
+                        consecutive_errors += 1;
+                        if consecutive_errors <= 3 {
+                            warn!("vpcd client error for {}: {} (attempt {})", reader_name, e, consecutive_errors);
+                        } else {
+                            error!("vpcd client error for {}: {} (attempt {})", reader_name, e, consecutive_errors);
+                        }
+                        // Only wait on errors, not normal disconnects
+                        let delay = std::cmp::min(consecutive_errors as u64, 5);
+                        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                     }
                 }
-
-                // Wait before reconnecting
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                info!("Reconnecting to vpcd for {}...", reader_name);
             }
         });
 
