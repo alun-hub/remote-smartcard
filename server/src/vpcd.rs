@@ -79,7 +79,7 @@ impl VpcdClient {
             session_id: None,
             reader_name: None,
             atr: Vec::new(),
-            powered: false,
+            powered: true, // Card is "powered" when we connect
         }
     }
 
@@ -97,6 +97,9 @@ impl VpcdClient {
         let mut stream = TcpStream::connect(&addr).await
             .map_err(|e| format!("Failed to connect to vpcd: {}", e))?;
 
+        // Reset power state on new connection (card is "inserted")
+        self.powered = true;
+
         info!("Connected to vpcd, waiting for command channel to be ready...");
 
         // Wait for command channel before processing commands
@@ -110,9 +113,15 @@ impl VpcdClient {
         loop {
             match self.receive_message(&mut stream).await {
                 Ok(Some(msg)) => {
+                    let is_power_off = matches!(&msg, VpcdMessage::Control(VpcdCtrlCommand::PowerOff));
                     let response = self.handle_message(msg).await;
                     if let Err(e) = self.send_response(&mut stream, &response).await {
                         error!("Failed to send response to vpcd: {}", e);
+                        break;
+                    }
+                    // Disconnect after PowerOff to simulate card removal
+                    if is_power_off {
+                        info!("Disconnecting after PowerOff (card ejected)");
                         break;
                     }
                 }
@@ -189,9 +198,9 @@ impl VpcdClient {
         let result = match msg {
             VpcdMessage::Control(cmd) => match cmd {
                 VpcdCtrlCommand::PowerOff => {
-                    info!("vpcd: Power Off");
+                    info!("vpcd: Power Off - will disconnect after response");
                     self.powered = false;
-                    vec![] // Empty response = success
+                    vec![] // Empty response = success, then we'll disconnect
                 }
                 VpcdCtrlCommand::PowerOn => {
                     info!("vpcd: Power On - getting ATR from client");
@@ -205,8 +214,13 @@ impl VpcdClient {
                     self.get_atr_from_client().await
                 }
                 VpcdCtrlCommand::GetAtr => {
-                    info!("vpcd: Get ATR - getting ATR from client");
-                    self.get_atr_from_client().await
+                    if self.powered {
+                        info!("vpcd: Get ATR - returning cached ATR");
+                        self.get_atr_from_client().await
+                    } else {
+                        info!("vpcd: Get ATR - card not powered, returning empty");
+                        vec![]
+                    }
                 }
             }
             VpcdMessage::Apdu(apdu) => {
