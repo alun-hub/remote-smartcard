@@ -41,6 +41,15 @@ service RemoteSmartcard {
   // Bidirectional command channel for APDU forwarding
   // Server sends commands, client executes on local card and sends responses
   rpc CommandChannel(stream CommandResponse) returns (stream CommandRequest);
+
+  // Send command response directly (bypasses streaming issues)
+  // Client calls this after executing a command to send the response
+  rpc SendCommandResponse(CommandResponse) returns (SendResponseAck);
+}
+
+message SendResponseAck {
+  bool success = 1;
+  string error = 2;
 }
 
 // ============================================================================

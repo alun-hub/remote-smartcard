@@ -221,7 +221,7 @@ impl GrpcClient {
 
         // Spawn task to handle incoming commands
         let session_id_clone = session_id.clone();
-        let response_tx_clone = response_tx.clone();
+        let mut client_clone = self.client.clone();
 
         tokio::spawn(async move {
             use tokio_stream::StreamExt;
@@ -231,15 +231,23 @@ impl GrpcClient {
             while let Some(result) = cmd_stream.next().await {
                 match result {
                     Ok(request) => {
-                        debug!("Received command {} for reader '{}'", request.command_id, request.reader_name);
+                        let command_id = request.command_id;
+                        debug!("Received command {} for reader '{}'", command_id, request.reader_name);
 
                         // Process the command
                         let response = Self::process_command(&session_id_clone, request);
 
-                        // Send response back
-                        if let Err(e) = response_tx_clone.send(response).await {
-                            error!("Failed to send response: {}", e);
-                            break;
+                        // Send response via direct RPC (bypasses streaming issues)
+                        info!("Sending response for command {} via direct RPC", command_id);
+                        match client_clone.send_command_response(response).await {
+                            Ok(_) => {
+                                info!("Response for command {} sent successfully", command_id);
+                            }
+                            Err(e) => {
+                                error!("Failed to send response via RPC: {}", e);
+                                // Also try the stream as fallback
+                                // response_tx_clone.send(response).await.ok();
+                            }
                         }
                     }
                     Err(e) => {

@@ -381,4 +381,50 @@ impl RemoteSmartcard for SmartcardService {
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(cmd_rx)))
     }
+
+    /// Handle command response sent directly from client (bypasses streaming)
+    async fn send_command_response(
+        &self,
+        request: Request<CommandResponse>,
+    ) -> Result<Response<rsc_protocol::SendResponseAck>, Status> {
+        let response = request.into_inner();
+        let session_id = response.session_id.clone();
+        let command_id = response.command_id;
+
+        info!("Received direct command response for command {} in session {}", command_id, session_id);
+
+        // Handle the response
+        if command_id > 0 {
+            let mut sessions_guard = self.sessions.write().await;
+            if let Some(session) = sessions_guard.get_session_mut(&session_id) {
+                match session.handle_response(response) {
+                    Ok(_) => {
+                        info!("Successfully handled response for command {}", command_id);
+                        return Ok(Response::new(rsc_protocol::SendResponseAck {
+                            success: true,
+                            error: String::new(),
+                        }));
+                    }
+                    Err(e) => {
+                        warn!("Failed to handle response: {}", e);
+                        return Ok(Response::new(rsc_protocol::SendResponseAck {
+                            success: false,
+                            error: e,
+                        }));
+                    }
+                }
+            } else {
+                warn!("Session not found: {}", session_id);
+                return Ok(Response::new(rsc_protocol::SendResponseAck {
+                    success: false,
+                    error: format!("Session not found: {}", session_id),
+                }));
+            }
+        }
+
+        Ok(Response::new(rsc_protocol::SendResponseAck {
+            success: true,
+            error: String::new(),
+        }))
+    }
 }
