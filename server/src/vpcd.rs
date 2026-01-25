@@ -117,7 +117,7 @@ impl VpcdClient {
                     }
                 }
                 Ok(None) => {
-                    info!("vpcd connection closed");
+                    info!("vpcd connection closed gracefully (EOF)");
                     break;
                 }
                 Err(e) => {
@@ -178,7 +178,7 @@ impl VpcdClient {
         stream.flush().await
             .map_err(|e| format!("Failed to flush: {}", e))?;
 
-        debug!("Sent response: {} bytes", data.len());
+        info!("Sent response to vpcd: {} bytes: {}", data.len(), hex::encode(data));
 
         Ok(())
     }
@@ -452,8 +452,9 @@ impl VpcdManager {
                 match client.connect(&vpcd_host, port).await {
                     Ok(_) => {
                         // Normal disconnect (pcscd calls vicc_eject periodically)
-                        // Reconnect immediately to maintain card presence
-                        debug!("vpcd client for {} disconnected, reconnecting immediately", reader_name);
+                        // Small delay to let socket fully close before reconnecting
+                        info!("vpcd client for {} disconnected normally, reconnecting in 100ms", reader_name);
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         consecutive_errors = 0;
                     }
                     Err(e) => {
