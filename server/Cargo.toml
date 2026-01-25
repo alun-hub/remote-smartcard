@@ -45,6 +45,7 @@ thiserror.workspace = true
 bytes.workspace = true
 dashmap = "5.5"
 uuid = { version = "1.6", features = ["v4"] }
+hex = "0.4"
 
 [build-dependencies]
 tonic-build.workspace = true

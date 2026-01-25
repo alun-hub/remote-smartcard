@@ -21,6 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::RwLock;
 use tracing::{info, debug, warn, error};
+use hex;
 
 use crate::session_manager::SessionManager;
 use rsc_protocol::command_request;
@@ -85,12 +86,19 @@ impl VpcdClient {
     /// Connect to vpcd and handle commands
     pub async fn connect(&mut self, host: &str, port: u16) -> Result<(), String> {
         let addr = format!("{}:{}", host, port);
-        info!("Connecting to vpcd at {}", addr);
+        info!("Connecting to vpcd at {} for session {:?} reader {:?}", addr, self.session_id, self.reader_name);
 
         let mut stream = TcpStream::connect(&addr).await
             .map_err(|e| format!("Failed to connect to vpcd: {}", e))?;
 
-        info!("Connected to vpcd");
+        info!("Connected to vpcd, waiting for command channel to be ready...");
+
+        // Wait for command channel before processing commands
+        if !self.wait_for_command_channel().await {
+            warn!("Command channel not available after timeout, will retry on each command");
+        } else {
+            info!("Command channel is ready, starting to process vpcd commands");
+        }
 
         // Main loop - receive commands from vpcd
         loop {
@@ -163,57 +171,66 @@ impl VpcdClient {
 
     /// Handle a vpcd command
     async fn handle_command(&mut self, cmd: VpcdCommand, data: &[u8]) -> Vec<u8> {
-        match cmd {
+        info!("vpcd: Handling command {:?} for reader {:?}", cmd, self.reader_name);
+        let result = match cmd {
             VpcdCommand::PowerOff => {
                 info!("vpcd: Power Off");
                 self.powered = false;
                 vec![] // Empty response = success
             }
             VpcdCommand::PowerOn => {
-                info!("vpcd: Power On");
+                info!("vpcd: Power On - getting ATR from client");
                 self.powered = true;
                 // Return ATR on power on
                 self.get_atr_from_client().await
             }
             VpcdCommand::Reset => {
-                info!("vpcd: Reset");
+                info!("vpcd: Reset - getting ATR from client");
                 // Return ATR on reset
                 self.get_atr_from_client().await
             }
             VpcdCommand::GetAtr => {
-                debug!("vpcd: Get ATR");
+                info!("vpcd: Get ATR - getting ATR from client");
                 self.get_atr_from_client().await
             }
             VpcdCommand::Apdu => {
-                debug!("vpcd: APDU ({} bytes)", data.len());
+                info!("vpcd: APDU ({} bytes) - forwarding to client", data.len());
                 self.forward_apdu(data).await
             }
-        }
+        };
+        info!("vpcd: Command {:?} returned {} bytes", cmd, result.len());
+        result
     }
 
     /// Wait for command channel to be available
     async fn wait_for_command_channel(&self) -> bool {
-        let (session_id, _) = match (&self.session_id, &self.reader_name) {
+        let (session_id, reader_name) = match (&self.session_id, &self.reader_name) {
             (Some(s), Some(r)) => (s.clone(), r.clone()),
             _ => return false,
         };
 
-        // Wait up to 10 seconds for command channel
-        for i in 0..100 {
+        info!("Waiting for command channel for session {} reader {}", session_id, reader_name);
+
+        // Wait up to 30 seconds for command channel
+        for i in 0..300 {
             {
                 let sessions = self.sessions.read().await;
                 if let Some(session) = sessions.get_session(&session_id) {
                     if session.command_channel.is_some() {
-                        if i > 0 {
-                            debug!("Command channel ready after {}ms", i * 100);
-                        }
+                        info!("Command channel ready after {}ms for session {}", i * 100, session_id);
                         return true;
                     }
+                } else {
+                    warn!("Session {} not found while waiting for command channel", session_id);
+                    return false;
                 }
+            }
+            if i % 10 == 0 && i > 0 {
+                debug!("Still waiting for command channel... {}ms elapsed", i * 100);
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        warn!("Timeout waiting for command channel");
+        warn!("Timeout (30s) waiting for command channel for session {}", session_id);
         false
     }
 
@@ -227,11 +244,15 @@ impl VpcdClient {
             }
         };
 
+        info!("get_atr_from_client: session={}, reader={}", session_id, reader_name);
+
         // Wait for command channel to be ready
         if !self.wait_for_command_channel().await {
-            warn!("Command channel not available");
+            warn!("Command channel not available for GetATR");
             return vec![];
         }
+
+        info!("get_atr_from_client: command channel ready, sending GetAtr command");
 
         // Send command and get response receiver - release lock before waiting!
         let response_rx = {
@@ -246,7 +267,10 @@ impl VpcdClient {
 
             // Send GetAtr command to client - returns receiver for response
             match session.send_command_async(command_request::Command::GetAtr(rsc_protocol::GetAtrCommand {}), &reader_name).await {
-                Ok(rx) => rx,
+                Ok(rx) => {
+                    info!("get_atr_from_client: GetAtr command sent, waiting for response");
+                    rx
+                }
                 Err(e) => {
                     error!("Error sending GetAtr command: {}", e);
                     return vec![];
@@ -255,24 +279,28 @@ impl VpcdClient {
         }; // Lock released here!
 
         // Now wait for response without holding the lock
+        info!("get_atr_from_client: waiting for response (timeout 30s)");
         match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
             Ok(Ok(response)) => {
+                info!("get_atr_from_client: got response, success={}, error={}", response.success, response.error);
                 if response.success {
                     if let Some(rsc_protocol::command_response::Response::Atr(atr_resp)) = response.response {
                         self.atr = atr_resp.atr.clone();
-                        info!("Got ATR from client: {} bytes", self.atr.len());
+                        info!("Got ATR from client: {} bytes: {}", self.atr.len(), hex::encode(&self.atr));
                         return self.atr.clone();
+                    } else {
+                        warn!("get_atr_from_client: response has no ATR data");
                     }
                 }
                 warn!("Failed to get ATR: {}", response.error);
                 vec![]
             }
             Ok(Err(_)) => {
-                error!("Response channel closed");
+                error!("Response channel closed while waiting for ATR");
                 vec![]
             }
             Err(_) => {
-                error!("GetAtr command timed out");
+                error!("GetAtr command timed out after 30s");
                 vec![]
             }
         }
@@ -288,6 +316,8 @@ impl VpcdClient {
                 return vec![0x6F, 0x00];
             }
         };
+
+        info!("forward_apdu: APDU={} for session={}, reader={}", hex::encode(apdu), session_id, reader_name);
 
         // Wait for command channel to be ready
         if !self.wait_for_command_channel().await {
@@ -312,7 +342,10 @@ impl VpcdClient {
             });
 
             match session.send_command_async(command, &reader_name).await {
-                Ok(rx) => rx,
+                Ok(rx) => {
+                    info!("forward_apdu: APDU command sent, waiting for response");
+                    rx
+                }
                 Err(e) => {
                     error!("Error sending APDU command: {}", e);
                     return vec![0x6F, 0x00];
@@ -323,14 +356,15 @@ impl VpcdClient {
         // Now wait for response without holding the lock
         match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
             Ok(Ok(response)) => {
+                info!("forward_apdu: got response, success={}, error={}", response.success, response.error);
                 if response.success {
                     if let Some(rsc_protocol::command_response::Response::Apdu(apdu_resp)) = response.response {
                         // Build full response: data + SW1 + SW2
                         let mut result = apdu_resp.data;
                         result.push(apdu_resp.sw1 as u8);
                         result.push(apdu_resp.sw2 as u8);
-                        debug!("APDU response: {} bytes, SW={:02X}{:02X}",
-                               result.len() - 2, apdu_resp.sw1, apdu_resp.sw2);
+                        info!("APDU response: {} bytes, SW={:02X}{:02X}, data={}",
+                               result.len() - 2, apdu_resp.sw1, apdu_resp.sw2, hex::encode(&result));
                         return result;
                     }
                 }
@@ -338,11 +372,11 @@ impl VpcdClient {
                 vec![0x6F, 0x00]
             }
             Ok(Err(_)) => {
-                error!("Response channel closed");
+                error!("Response channel closed while waiting for APDU");
                 vec![0x6F, 0x00]
             }
             Err(_) => {
-                error!("APDU command timed out");
+                error!("APDU command timed out after 30s");
                 vec![0x6F, 0x00]
             }
         }
