@@ -100,14 +100,10 @@ impl VpcdClient {
         // Reset power state on new connection (card is "inserted")
         self.powered = true;
 
-        info!("Connected to vpcd, waiting for command channel to be ready...");
-
-        // Wait for command channel before processing commands
-        if !self.wait_for_command_channel().await {
-            warn!("Command channel not available after timeout, will retry on each command");
-        } else {
-            info!("Command channel is ready, starting to process vpcd commands");
-        }
+        info!("Connected to vpcd, starting to process commands immediately");
+        // NOTE: We don't wait for command channel here anymore!
+        // GetATR uses cached ATR, so we can respond immediately.
+        // APDUs will wait for command channel when needed.
 
         // Main loop - receive messages from vpcd
         loop {
