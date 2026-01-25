@@ -28,11 +28,17 @@ struct KeepAliveStream {
     receiver: mpsc::Receiver<CommandResponse>,
     #[allow(dead_code)]
     sender: mpsc::Sender<CommandResponse>, // Prevents channel from closing
+    poll_count: std::sync::atomic::AtomicU32,
 }
 
 impl KeepAliveStream {
     fn new(sender: mpsc::Sender<CommandResponse>, receiver: mpsc::Receiver<CommandResponse>) -> Self {
-        Self { receiver, sender }
+        info!("KeepAliveStream created");
+        Self {
+            receiver,
+            sender,
+            poll_count: std::sync::atomic::AtomicU32::new(0),
+        }
     }
 }
 
@@ -40,7 +46,25 @@ impl Stream for KeepAliveStream {
     type Item = CommandResponse;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.receiver).poll_recv(cx)
+        let count = self.poll_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let result = Pin::new(&mut self.receiver).poll_recv(cx);
+        match &result {
+            Poll::Ready(Some(_)) => info!("KeepAliveStream poll #{}: Ready(Some(msg))", count),
+            Poll::Ready(None) => error!("KeepAliveStream poll #{}: Ready(None) - STREAM ENDING!", count),
+            Poll::Pending => {
+                if count < 5 || count % 100 == 0 {
+                    debug!("KeepAliveStream poll #{}: Pending", count);
+                }
+            }
+        }
+        result
+    }
+}
+
+impl Drop for KeepAliveStream {
+    fn drop(&mut self) {
+        error!("KeepAliveStream DROPPED! poll_count={}",
+               self.poll_count.load(std::sync::atomic::Ordering::Relaxed));
     }
 }
 
