@@ -196,6 +196,7 @@ impl GrpcClient {
         info!("Starting command channel for session: {}", session_id);
 
         // Create channel for sending responses to the server
+        // We need to keep response_tx alive to keep the stream open!
         let (response_tx, response_rx) = mpsc::channel::<CommandResponse>(100);
 
         // Create channel for shutdown notification
@@ -226,6 +227,11 @@ impl GrpcClient {
 
         tokio::spawn(async move {
             use tokio_stream::StreamExt;
+
+            // IMPORTANT: Keep response_tx alive to prevent stream from closing!
+            // We don't use it (responses go via SendCommandResponse RPC) but
+            // dropping it would close the bidirectional stream.
+            let _keep_alive = response_tx;
 
             info!("Command channel handler started for session: {}", session_id_clone);
             info!("Waiting for commands from server...");
