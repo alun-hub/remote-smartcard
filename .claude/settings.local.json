@@ -20,7 +20,8 @@
       "Bash(tasklist:*)",
       "Bash(git reset:*)",
       "WebFetch(domain:frankmorgner.github.io)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

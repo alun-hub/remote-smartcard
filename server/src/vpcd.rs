@@ -26,30 +26,36 @@ use hex;
 use crate::session_manager::SessionManager;
 use rsc_protocol::command_request;
 
-/// vpcd command types
+/// vpcd control command types (single byte commands)
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
-pub enum VpcdCommand {
-    PowerOff = 0x00,
-    PowerOn = 0x01,
-    Reset = 0x02,
-    GetAtr = 0x03,
-    Apdu = 0x04,
+pub enum VpcdCtrlCommand {
+    PowerOff = 0x00,  // VPCD_CTRL_OFF
+    PowerOn = 0x01,   // VPCD_CTRL_ON
+    Reset = 0x02,     // VPCD_CTRL_RESET
+    GetAtr = 0x04,    // VPCD_CTRL_ATR (note: 4, not 3!)
 }
 
-impl TryFrom<u8> for VpcdCommand {
+impl TryFrom<u8> for VpcdCtrlCommand {
     type Error = String;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0x00 => Ok(VpcdCommand::PowerOff),
-            0x01 => Ok(VpcdCommand::PowerOn),
-            0x02 => Ok(VpcdCommand::Reset),
-            0x03 => Ok(VpcdCommand::GetAtr),
-            0x04 => Ok(VpcdCommand::Apdu),
-            _ => Err(format!("Unknown vpcd command: 0x{:02X}", value)),
+            0x00 => Ok(VpcdCtrlCommand::PowerOff),
+            0x01 => Ok(VpcdCtrlCommand::PowerOn),
+            0x02 => Ok(VpcdCtrlCommand::Reset),
+            0x04 => Ok(VpcdCtrlCommand::GetAtr),
+            _ => Err(format!("Unknown vpcd control command: 0x{:02X}", value)),
         }
     }
+}
+
+/// vpcd message types
+/// Protocol distinguishes by length: len==1 is control command, len>1 is APDU
+#[derive(Debug, Clone)]
+pub enum VpcdMessage {
+    Control(VpcdCtrlCommand),
+    Apdu(Vec<u8>),
 }
 
 /// vpcd client state
@@ -100,11 +106,11 @@ impl VpcdClient {
             info!("Command channel is ready, starting to process vpcd commands");
         }
 
-        // Main loop - receive commands from vpcd
+        // Main loop - receive messages from vpcd
         loop {
-            match self.receive_command(&mut stream).await {
-                Ok(Some((cmd, data))) => {
-                    let response = self.handle_command(cmd, &data).await;
+            match self.receive_message(&mut stream).await {
+                Ok(Some(msg)) => {
+                    let response = self.handle_message(msg).await;
                     if let Err(e) = self.send_response(&mut stream, &response).await {
                         error!("Failed to send response to vpcd: {}", e);
                         break;
@@ -124,9 +130,12 @@ impl VpcdClient {
         Ok(())
     }
 
-    /// Receive a command from vpcd
-    async fn receive_command(&self, stream: &mut TcpStream) -> Result<Option<(VpcdCommand, Vec<u8>)>, String> {
-        // Read 2-byte length
+    /// Receive a message from vpcd
+    /// Protocol: [2 bytes length BE] [data]
+    /// - If length == 1: data is a control command byte (PowerOff=0, PowerOn=1, Reset=2, GetATR=4)
+    /// - If length > 1: data is a raw APDU (no command prefix)
+    async fn receive_message(&self, stream: &mut TcpStream) -> Result<Option<VpcdMessage>, String> {
+        // Read 2-byte length (big-endian)
         let mut len_buf = [0u8; 2];
         match stream.read_exact(&mut len_buf).await {
             Ok(_) => {}
@@ -136,20 +145,25 @@ impl VpcdClient {
 
         let len = u16::from_be_bytes(len_buf) as usize;
         if len == 0 {
-            return Err("Invalid zero-length command".to_string());
+            return Err("Invalid zero-length message".to_string());
         }
 
-        // Read command and payload
+        // Read the data
         let mut data = vec![0u8; len];
         stream.read_exact(&mut data).await
-            .map_err(|e| format!("Failed to read command data: {}", e))?;
+            .map_err(|e| format!("Failed to read message data: {}", e))?;
 
-        let cmd = VpcdCommand::try_from(data[0])?;
-        let payload = data[1..].to_vec();
-
-        debug!("Received vpcd command: {:?}, payload: {} bytes", cmd, payload.len());
-
-        Ok(Some((cmd, payload)))
+        // Distinguish between control commands (len==1) and APDUs (len>1)
+        if len == 1 {
+            // Control command - single byte
+            let cmd = VpcdCtrlCommand::try_from(data[0])?;
+            info!("Received vpcd control command: {:?}", cmd);
+            Ok(Some(VpcdMessage::Control(cmd)))
+        } else {
+            // APDU - raw data, no command prefix
+            info!("Received vpcd APDU: {} bytes: {}", len, hex::encode(&data));
+            Ok(Some(VpcdMessage::Apdu(data)))
+        }
     }
 
     /// Send a response to vpcd
@@ -169,36 +183,38 @@ impl VpcdClient {
         Ok(())
     }
 
-    /// Handle a vpcd command
-    async fn handle_command(&mut self, cmd: VpcdCommand, data: &[u8]) -> Vec<u8> {
-        info!("vpcd: Handling command {:?} for reader {:?}", cmd, self.reader_name);
-        let result = match cmd {
-            VpcdCommand::PowerOff => {
-                info!("vpcd: Power Off");
-                self.powered = false;
-                vec![] // Empty response = success
+    /// Handle a vpcd message (control command or APDU)
+    async fn handle_message(&mut self, msg: VpcdMessage) -> Vec<u8> {
+        info!("vpcd: Handling message {:?} for reader {:?}", msg, self.reader_name);
+        let result = match msg {
+            VpcdMessage::Control(cmd) => match cmd {
+                VpcdCtrlCommand::PowerOff => {
+                    info!("vpcd: Power Off");
+                    self.powered = false;
+                    vec![] // Empty response = success
+                }
+                VpcdCtrlCommand::PowerOn => {
+                    info!("vpcd: Power On - getting ATR from client");
+                    self.powered = true;
+                    // Return ATR on power on
+                    self.get_atr_from_client().await
+                }
+                VpcdCtrlCommand::Reset => {
+                    info!("vpcd: Reset - getting ATR from client");
+                    // Return ATR on reset
+                    self.get_atr_from_client().await
+                }
+                VpcdCtrlCommand::GetAtr => {
+                    info!("vpcd: Get ATR - getting ATR from client");
+                    self.get_atr_from_client().await
+                }
             }
-            VpcdCommand::PowerOn => {
-                info!("vpcd: Power On - getting ATR from client");
-                self.powered = true;
-                // Return ATR on power on
-                self.get_atr_from_client().await
-            }
-            VpcdCommand::Reset => {
-                info!("vpcd: Reset - getting ATR from client");
-                // Return ATR on reset
-                self.get_atr_from_client().await
-            }
-            VpcdCommand::GetAtr => {
-                info!("vpcd: Get ATR - getting ATR from client");
-                self.get_atr_from_client().await
-            }
-            VpcdCommand::Apdu => {
-                info!("vpcd: APDU ({} bytes) - forwarding to client", data.len());
-                self.forward_apdu(data).await
+            VpcdMessage::Apdu(apdu) => {
+                info!("vpcd: APDU ({} bytes) - forwarding to client", apdu.len());
+                self.forward_apdu(&apdu).await
             }
         };
-        info!("vpcd: Command {:?} returned {} bytes", cmd, result.len());
+        info!("vpcd: Message returned {} bytes: {}", result.len(), hex::encode(&result));
         result
     }
 
