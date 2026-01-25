@@ -326,24 +326,24 @@ impl RemoteSmartcard for SmartcardService {
         tokio::spawn(async move {
             let mut session_id: Option<String> = None;
 
-            info!("Command channel handler task started, waiting for messages...");
+            debug!("Command channel handler task started, waiting for messages...");
 
             while let Some(result) = stream.next().await {
-                info!("Command channel received message from stream");
+                debug!("Command channel received message from stream");
                 match result {
                     Ok(response) => {
-                        info!("Got response with command_id={}", response.command_id);
+                        debug!("Got response with command_id={}", response.command_id);
                         // First message sets up the session
                         if session_id.is_none() {
                             session_id = Some(response.session_id.clone());
 
                             // Register command channel with session
-                            info!("Acquiring sessions lock for initial setup...");
+                            debug!("Acquiring sessions lock for initial setup...");
                             let mut sessions_guard = sessions.write().await;
-                            info!("Got sessions lock for initial setup");
+                            debug!("Got sessions lock for initial setup");
                             if let Some(session) = sessions_guard.get_session_mut(&response.session_id) {
                                 session.set_command_channel(cmd_tx_clone.clone());
-                                info!("Command channel connected for session: {}", response.session_id);
+                                debug!("Command channel connected for session: {}", response.session_id);
                             } else {
                                 warn!("Session not found for command channel: {}", response.session_id);
                                 break;
@@ -352,9 +352,9 @@ impl RemoteSmartcard for SmartcardService {
 
                         // Handle the response
                         if response.command_id > 0 {
-                            info!("Acquiring sessions lock to handle response {}...", response.command_id);
+                            debug!("Acquiring sessions lock to handle response {}...", response.command_id);
                             let mut sessions_guard = sessions.write().await;
-                            info!("Got sessions lock for response {}", response.command_id);
+                            debug!("Got sessions lock for response {}", response.command_id);
                             if let Some(session) = sessions_guard.get_session_mut(session_id.as_ref().unwrap()) {
                                 if let Err(e) = session.handle_response(response) {
                                     warn!("Failed to handle response: {}", e);
@@ -375,7 +375,7 @@ impl RemoteSmartcard for SmartcardService {
                 if let Some(session) = sessions_guard.get_session_mut(&sid) {
                     session.clear_command_channel();
                 }
-                info!("Command channel disconnected for session: {}", sid);
+                debug!("Command channel disconnected for session: {}", sid);
             }
         });
 
@@ -391,7 +391,7 @@ impl RemoteSmartcard for SmartcardService {
         let session_id = response.session_id.clone();
         let command_id = response.command_id;
 
-        info!("Received direct command response for command {} in session {}", command_id, session_id);
+        debug!("Received direct command response for command {} in session {}", command_id, session_id);
 
         // Handle the response
         if command_id > 0 {
@@ -399,7 +399,7 @@ impl RemoteSmartcard for SmartcardService {
             if let Some(session) = sessions_guard.get_session_mut(&session_id) {
                 match session.handle_response(response) {
                     Ok(_) => {
-                        info!("Successfully handled response for command {}", command_id);
+                        debug!("Successfully handled response for command {}", command_id);
                         return Ok(Response::new(rsc_protocol::SendResponseAck {
                             success: true,
                             error: String::new(),

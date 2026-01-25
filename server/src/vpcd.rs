@@ -106,27 +106,23 @@ impl VpcdClient {
         // APDUs will wait for command channel when needed.
 
         // Main loop - receive messages from vpcd
-        info!("Entering vpcd message loop");
+        debug!("Entering vpcd message loop");
         loop {
-            info!("Waiting for next vpcd message...");
             match self.receive_message(&mut stream).await {
                 Ok(Some(msg)) => {
-                    info!("Received vpcd message: {:?}", msg);
+                    debug!("Received vpcd message: {:?}", msg);
                     // handle_message returns Some(response) for commands that need a response,
                     // None for commands that don't (PowerOn/PowerOff/Reset)
                     if let Some(response) = self.handle_message(msg).await {
-                        info!("Sending response: {} bytes", response.len());
+                        debug!("Sending response: {} bytes", response.len());
                         if let Err(e) = self.send_response(&mut stream, &response).await {
                             error!("Failed to send response to vpcd: {}", e);
                             break;
                         }
-                        info!("Response sent successfully");
-                    } else {
-                        info!("No response needed for this command");
                     }
                 }
                 Ok(None) => {
-                    info!("vpcd connection closed gracefully (EOF)");
+                    debug!("vpcd connection closed gracefully (EOF)");
                     break;
                 }
                 Err(e) => {
@@ -135,7 +131,6 @@ impl VpcdClient {
                 }
             }
         }
-        info!("Exited vpcd message loop");
 
         Ok(())
     }
@@ -222,7 +217,7 @@ impl VpcdClient {
                 }
             }
             VpcdMessage::Apdu(apdu) => {
-                info!("vpcd: APDU ({} bytes) - forwarding to client", apdu.len());
+                debug!("vpcd: APDU ({} bytes) - forwarding to client", apdu.len());
                 let response = self.forward_apdu(&apdu).await;
                 debug!("vpcd: APDU response {} bytes", response.len());
                 Some(response)
@@ -237,7 +232,7 @@ impl VpcdClient {
             _ => return false,
         };
 
-        info!("Waiting for command channel for session {} reader {}", session_id, reader_name);
+        debug!("Waiting for command channel for session {} reader {}", session_id, reader_name);
 
         // Wait up to 30 seconds for command channel
         for i in 0..300 {
@@ -245,7 +240,7 @@ impl VpcdClient {
                 let sessions = self.sessions.read().await;
                 if let Some(session) = sessions.get_session(&session_id) {
                     if session.command_channel.is_some() {
-                        info!("Command channel ready after {}ms for session {}", i * 100, session_id);
+                        debug!("Command channel ready after {}ms for session {}", i * 100, session_id);
                         return true;
                     }
                 } else {
@@ -288,7 +283,7 @@ impl VpcdClient {
             }
         }
 
-        info!("No cached ATR, fetching from client...");
+        debug!("No cached ATR, fetching from client...");
 
         // Wait for command channel to be ready
         if !self.wait_for_command_channel().await {
@@ -296,7 +291,7 @@ impl VpcdClient {
             return vec![];
         }
 
-        info!("get_atr_from_client: command channel ready, sending GetAtr command");
+        debug!("get_atr_from_client: command channel ready, sending GetAtr command");
 
         // Send command and get response receiver - release lock before waiting!
         let response_rx = {
@@ -312,7 +307,7 @@ impl VpcdClient {
             // Send GetAtr command to client - returns receiver for response
             match session.send_command_async(command_request::Command::GetAtr(rsc_protocol::GetAtrCommand {}), &reader_name).await {
                 Ok(rx) => {
-                    info!("get_atr_from_client: GetAtr command sent, waiting for response");
+                    debug!("get_atr_from_client: GetAtr command sent, waiting for response");
                     rx
                 }
                 Err(e) => {
@@ -323,14 +318,14 @@ impl VpcdClient {
         }; // Lock released here!
 
         // Now wait for response without holding the lock
-        info!("get_atr_from_client: waiting for response (timeout 30s)");
+        debug!("get_atr_from_client: waiting for response (timeout 30s)");
         match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
             Ok(Ok(response)) => {
-                info!("get_atr_from_client: got response, success={}, error={}", response.success, response.error);
+                debug!("get_atr_from_client: got response, success={}, error={}", response.success, response.error);
                 if response.success {
                     if let Some(rsc_protocol::command_response::Response::Atr(atr_resp)) = response.response {
                         self.atr = atr_resp.atr.clone();
-                        info!("Got ATR from client: {} bytes: {}", self.atr.len(), hex::encode(&self.atr));
+                        debug!("Got ATR from client: {} bytes", self.atr.len());
                         return self.atr.clone();
                     } else {
                         warn!("get_atr_from_client: response has no ATR data");
@@ -361,7 +356,7 @@ impl VpcdClient {
             }
         };
 
-        info!("forward_apdu: APDU={} for session={}, reader={}", hex::encode(apdu), session_id, reader_name);
+        debug!("forward_apdu: APDU={} for session={}, reader={}", hex::encode(apdu), session_id, reader_name);
 
         // Wait for command channel to be ready
         if !self.wait_for_command_channel().await {
@@ -387,7 +382,7 @@ impl VpcdClient {
 
             match session.send_command_async(command, &reader_name).await {
                 Ok(rx) => {
-                    info!("forward_apdu: APDU command sent, waiting for response");
+                    debug!("forward_apdu: APDU command sent, waiting for response");
                     rx
                 }
                 Err(e) => {
@@ -400,15 +395,15 @@ impl VpcdClient {
         // Now wait for response without holding the lock
         match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
             Ok(Ok(response)) => {
-                info!("forward_apdu: got response, success={}, error={}", response.success, response.error);
+                debug!("forward_apdu: got response, success={}, error={}", response.success, response.error);
                 if response.success {
                     if let Some(rsc_protocol::command_response::Response::Apdu(apdu_resp)) = response.response {
                         // Build full response: data + SW1 + SW2
                         let mut result = apdu_resp.data;
                         result.push(apdu_resp.sw1 as u8);
                         result.push(apdu_resp.sw2 as u8);
-                        info!("APDU response: {} bytes, SW={:02X}{:02X}, data={}",
-                               result.len() - 2, apdu_resp.sw1, apdu_resp.sw2, hex::encode(&result));
+                        debug!("APDU response: {} bytes, SW={:02X}{:02X}",
+                               result.len() - 2, apdu_resp.sw1, apdu_resp.sw2);
                         return result;
                     }
                 }
@@ -464,7 +459,7 @@ impl VpcdManager {
                     Ok(_) => {
                         // Normal disconnect (pcscd calls vicc_eject periodically)
                         // Small delay to let socket fully close before reconnecting
-                        info!("vpcd client for {} disconnected normally, reconnecting in 100ms", reader_name);
+                        debug!("vpcd client for {} disconnected normally, reconnecting", reader_name);
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         consecutive_errors = 0;
                     }

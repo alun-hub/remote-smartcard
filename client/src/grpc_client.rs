@@ -19,7 +19,6 @@ use futures::Stream;
 
 use crate::error::{ClientError, Result};
 use crate::pcsc_reader;
-use hex;
 
 /// A stream that keeps its sender alive to prevent the channel from closing.
 /// This is necessary because tonic's bidirectional streaming closes when the
@@ -33,7 +32,7 @@ struct KeepAliveStream {
 
 impl KeepAliveStream {
     fn new(sender: mpsc::Sender<CommandResponse>, receiver: mpsc::Receiver<CommandResponse>) -> Self {
-        info!("KeepAliveStream created");
+        debug!("KeepAliveStream created");
         Self {
             receiver,
             sender,
@@ -49,7 +48,7 @@ impl Stream for KeepAliveStream {
         let count = self.poll_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = Pin::new(&mut self.receiver).poll_recv(cx);
         match &result {
-            Poll::Ready(Some(_)) => info!("KeepAliveStream poll #{}: Ready(Some(msg))", count),
+            Poll::Ready(Some(_)) => debug!("KeepAliveStream poll #{}: Ready(Some(msg))", count),
             Poll::Ready(None) => error!("KeepAliveStream poll #{}: Ready(None) - STREAM ENDING!", count),
             Poll::Pending => {
                 if count < 5 || count % 100 == 0 {
@@ -287,28 +286,24 @@ impl GrpcClient {
                 }
             };
 
-            info!("Command channel handler started for session: {}", session_id_clone);
-            info!("Waiting for commands from server...");
+            debug!("Command channel handler started for session: {}", session_id_clone);
+            debug!("Waiting for commands from server...");
 
             while let Some(result) = cmd_stream.next().await {
-                info!("Command channel received a message from server");
+                debug!("Command channel received a message from server");
                 match result {
                     Ok(request) => {
                         let command_id = request.command_id;
-                        info!("Received command {} for reader '{}' (has command: {})",
-                              command_id, request.reader_name, request.command.is_some());
+                        debug!("Received command {} for reader '{}'", command_id, request.reader_name);
 
                         // Process the command
-                        info!("Processing command {}...", command_id);
                         let response = Self::process_command(&session_id_clone, request);
-                        info!("Command {} processed, success={}, error={}", command_id, response.success, response.error);
+                        debug!("Command {} processed, success={}", command_id, response.success);
 
                         // Send response via direct RPC (bypasses streaming issues)
-                        info!("Sending response for command {} via direct RPC", command_id);
                         match client_clone.send_command_response(response).await {
-                            Ok(ack) => {
-                                let ack = ack.into_inner();
-                                info!("Response for command {} sent successfully, ack.success={}", command_id, ack.success);
+                            Ok(_) => {
+                                debug!("Response for command {} sent successfully", command_id);
                             }
                             Err(e) => {
                                 error!("Failed to send response via RPC: {}", e);
@@ -322,7 +317,7 @@ impl GrpcClient {
                 }
             }
 
-            info!("Command channel closed for session: {}", session_id_clone);
+            debug!("Command channel closed for session: {}", session_id_clone);
             let _ = shutdown_tx.send(()).await;
         });
 
@@ -334,7 +329,7 @@ impl GrpcClient {
         let command_id = request.command_id;
         let reader_name = request.reader_name.clone();
 
-        info!("process_command: cmd_id={}, reader='{}', command={:?}",
+        debug!("process_command: cmd_id={}, reader='{}', command={:?}",
               command_id, reader_name, request.command.as_ref().map(|c| match c {
                   command_request::Command::Apdu(_) => "Apdu",
                   command_request::Command::Connect(_) => "Connect",
@@ -344,19 +339,19 @@ impl GrpcClient {
 
         let (success, error, response) = match request.command {
             Some(command_request::Command::Apdu(apdu_cmd)) => {
-                info!("process_command: executing APDU command");
+                debug!("process_command: executing APDU command");
                 Self::handle_apdu_command(&reader_name, &apdu_cmd.apdu)
             }
             Some(command_request::Command::Connect(connect_cmd)) => {
-                info!("process_command: executing Connect command");
+                debug!("process_command: executing Connect command");
                 Self::handle_connect_command(&reader_name, connect_cmd)
             }
             Some(command_request::Command::Disconnect(disconnect_cmd)) => {
-                info!("process_command: executing Disconnect command");
+                debug!("process_command: executing Disconnect command");
                 Self::handle_disconnect_command(&reader_name, disconnect_cmd)
             }
             Some(command_request::Command::GetAtr(_)) => {
-                info!("process_command: executing GetAtr command");
+                debug!("process_command: executing GetAtr command");
                 Self::handle_get_atr_command(&reader_name)
             }
             None => {
@@ -365,7 +360,7 @@ impl GrpcClient {
             }
         };
 
-        info!("process_command: result success={}, error={}", success, error);
+        debug!("process_command: result success={}", success);
 
         CommandResponse {
             command_id,
@@ -442,11 +437,11 @@ impl GrpcClient {
 
     /// Handle get ATR command
     fn handle_get_atr_command(reader_name: &str) -> (bool, String, Option<command_response::Response>) {
-        info!("handle_get_atr_command: Getting ATR from reader '{}'", reader_name);
+        debug!("handle_get_atr_command: Getting ATR from reader '{}'", reader_name);
 
         match pcsc_reader::get_atr(reader_name) {
             Ok(atr) => {
-                info!("handle_get_atr_command: Got ATR ({} bytes): {}", atr.len(), hex::encode(&atr));
+                debug!("handle_get_atr_command: Got ATR ({} bytes)", atr.len());
                 (true, String::new(), Some(command_response::Response::Atr(
                     command_response::AtrResponse {
                         atr,
@@ -456,10 +451,10 @@ impl GrpcClient {
             }
             Err(e) => {
                 let err_str = e.to_string();
-                info!("handle_get_atr_command: get_atr error: {}", err_str);
+                debug!("handle_get_atr_command: get_atr error: {}", err_str);
                 // No card present is not an error
                 if err_str.contains("SCARD_E_NO_SMARTCARD") || err_str.contains("No card") || err_str.contains("NoSmartcard") {
-                    info!("handle_get_atr_command: No card present");
+                    debug!("handle_get_atr_command: No card present");
                     (true, String::new(), Some(command_response::Response::Atr(
                         command_response::AtrResponse {
                             atr: vec![],
