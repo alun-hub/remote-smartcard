@@ -195,43 +195,50 @@ impl GrpcClient {
 
         info!("Starting command channel for session: {}", session_id);
 
-        // Create channel for sending responses to the server
-        // We need to keep response_tx alive to keep the stream open!
-        let (response_tx, response_rx) = mpsc::channel::<CommandResponse>(100);
-
         // Create channel for shutdown notification
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
 
-        // Send initial message to register the session
-        let initial_response = CommandResponse {
-            command_id: 0,
-            session_id: session_id.clone(),
-            success: true,
-            error: String::new(),
-            response: None,
-        };
-        response_tx.send(initial_response).await
-            .map_err(|e| ClientError::Connection(format!("Failed to send initial response: {}", e)))?;
-
-        // Start the bidirectional stream
-        let stream = ReceiverStream::new(response_rx);
-        let mut cmd_stream = self.client
-            .command_channel(stream)
-            .await
-            .map_err(|e| ClientError::Connection(format!("Failed to start command channel: {}", e)))?
-            .into_inner();
-
-        // Spawn task to handle incoming commands
+        // Clone what we need for the spawned task
         let session_id_clone = session_id.clone();
         let mut client_clone = self.client.clone();
 
+        // Spawn task that owns the entire stream lifecycle
+        // This ensures response_tx stays alive as long as the stream needs it
         tokio::spawn(async move {
             use tokio_stream::StreamExt;
 
-            // IMPORTANT: Keep response_tx alive to prevent stream from closing!
-            // We don't use it (responses go via SendCommandResponse RPC) but
-            // dropping it would close the bidirectional stream.
-            let _keep_alive = response_tx;
+            // Create channel for sending responses to the server
+            // IMPORTANT: response_tx must stay alive to keep the stream open!
+            let (response_tx, response_rx) = mpsc::channel::<CommandResponse>(100);
+
+            // Send initial message to register the session
+            let initial_response = CommandResponse {
+                command_id: 0,
+                session_id: session_id_clone.clone(),
+                success: true,
+                error: String::new(),
+                response: None,
+            };
+            if let Err(e) = response_tx.send(initial_response).await {
+                error!("Failed to send initial response: {}", e);
+                let _ = shutdown_tx.send(()).await;
+                return;
+            }
+
+            // Start the bidirectional stream
+            let stream = ReceiverStream::new(response_rx);
+            let mut cmd_stream = match client_clone.command_channel(stream).await {
+                Ok(response) => response.into_inner(),
+                Err(e) => {
+                    error!("Failed to start command channel: {}", e);
+                    let _ = shutdown_tx.send(()).await;
+                    return;
+                }
+            };
+
+            // Keep response_tx alive - don't drop it!
+            // We use a separate variable to make this explicit
+            let _keep_stream_open = response_tx;
 
             info!("Command channel handler started for session: {}", session_id_clone);
             info!("Waiting for commands from server...");
