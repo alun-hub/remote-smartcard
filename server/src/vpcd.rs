@@ -113,10 +113,13 @@ impl VpcdClient {
         loop {
             match self.receive_message(&mut stream).await {
                 Ok(Some(msg)) => {
-                    let response = self.handle_message(msg).await;
-                    if let Err(e) = self.send_response(&mut stream, &response).await {
-                        error!("Failed to send response to vpcd: {}", e);
-                        break;
+                    // handle_message returns Some(response) for commands that need a response,
+                    // None for commands that don't (PowerOn/PowerOff/Reset)
+                    if let Some(response) = self.handle_message(msg).await {
+                        if let Err(e) = self.send_response(&mut stream, &response).await {
+                            error!("Failed to send response to vpcd: {}", e);
+                            break;
+                        }
                     }
                 }
                 Ok(None) => {
@@ -187,38 +190,40 @@ impl VpcdClient {
     }
 
     /// Handle a vpcd message (control command or APDU)
-    async fn handle_message(&mut self, msg: VpcdMessage) -> Vec<u8> {
-        debug!("vpcd: Handling message {:?} for reader {:?}", msg, self.reader_name);
-        let result = match msg {
+    /// Returns Some(response) for commands that need a response (GetATR, APDU)
+    /// Returns None for commands that don't need a response (PowerOn, PowerOff, Reset)
+    async fn handle_message(&mut self, msg: VpcdMessage) -> Option<Vec<u8>> {
+        debug!("vpcd: Handling message {:?}", msg);
+        match msg {
             VpcdMessage::Control(cmd) => match cmd {
                 VpcdCtrlCommand::PowerOff => {
-                    debug!("vpcd: Power Off");
+                    debug!("vpcd: Power Off (no response expected)");
                     self.powered = false;
-                    vec![] // Empty response = success
+                    None // No response for PowerOff
                 }
                 VpcdCtrlCommand::PowerOn => {
-                    debug!("vpcd: Power On");
+                    debug!("vpcd: Power On (no response expected)");
                     self.powered = true;
-                    // Return ATR on power on
-                    self.get_atr_from_client().await
+                    None // No response for PowerOn
                 }
                 VpcdCtrlCommand::Reset => {
-                    debug!("vpcd: Reset");
-                    // Return ATR on reset
-                    self.get_atr_from_client().await
+                    debug!("vpcd: Reset (no response expected)");
+                    None // No response for Reset
                 }
                 VpcdCtrlCommand::GetAtr => {
                     debug!("vpcd: Get ATR");
-                    self.get_atr_from_client().await
+                    let atr = self.get_atr_from_client().await;
+                    debug!("vpcd: ATR response {} bytes", atr.len());
+                    Some(atr)
                 }
             }
             VpcdMessage::Apdu(apdu) => {
                 info!("vpcd: APDU ({} bytes) - forwarding to client", apdu.len());
-                self.forward_apdu(&apdu).await
+                let response = self.forward_apdu(&apdu).await;
+                debug!("vpcd: APDU response {} bytes", response.len());
+                Some(response)
             }
-        };
-        debug!("vpcd: Response {} bytes", result.len());
-        result
+        }
     }
 
     /// Wait for command channel to be available
