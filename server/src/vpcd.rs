@@ -106,16 +106,23 @@ impl VpcdClient {
         // APDUs will wait for command channel when needed.
 
         // Main loop - receive messages from vpcd
+        info!("Entering vpcd message loop");
         loop {
+            info!("Waiting for next vpcd message...");
             match self.receive_message(&mut stream).await {
                 Ok(Some(msg)) => {
+                    info!("Received vpcd message: {:?}", msg);
                     // handle_message returns Some(response) for commands that need a response,
                     // None for commands that don't (PowerOn/PowerOff/Reset)
                     if let Some(response) = self.handle_message(msg).await {
+                        info!("Sending response: {} bytes", response.len());
                         if let Err(e) = self.send_response(&mut stream, &response).await {
                             error!("Failed to send response to vpcd: {}", e);
                             break;
                         }
+                        info!("Response sent successfully");
+                    } else {
+                        info!("No response needed for this command");
                     }
                 }
                 Ok(None) => {
@@ -128,6 +135,7 @@ impl VpcdClient {
                 }
             }
         }
+        info!("Exited vpcd message loop");
 
         Ok(())
     }
