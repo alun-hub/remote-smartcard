@@ -262,6 +262,23 @@ impl VpcdClient {
 
         info!("get_atr_from_client: session={}, reader={}", session_id, reader_name);
 
+        // First, check if we have a cached ATR from the session
+        {
+            let sessions = self.sessions.read().await;
+            if let Some(session) = sessions.get_session(&session_id) {
+                if let Some(reader_info) = session.readers.get(&reader_name) {
+                    if !reader_info.atr.is_empty() {
+                        info!("Using cached ATR for reader {}: {} bytes: {}",
+                              reader_name, reader_info.atr.len(), hex::encode(&reader_info.atr));
+                        self.atr = reader_info.atr.clone();
+                        return self.atr.clone();
+                    }
+                }
+            }
+        }
+
+        info!("No cached ATR, fetching from client...");
+
         // Wait for command channel to be ready
         if !self.wait_for_command_channel().await {
             warn!("Command channel not available for GetATR");
