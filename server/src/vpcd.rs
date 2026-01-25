@@ -113,15 +113,9 @@ impl VpcdClient {
         loop {
             match self.receive_message(&mut stream).await {
                 Ok(Some(msg)) => {
-                    let is_power_off = matches!(&msg, VpcdMessage::Control(VpcdCtrlCommand::PowerOff));
                     let response = self.handle_message(msg).await;
                     if let Err(e) = self.send_response(&mut stream, &response).await {
                         error!("Failed to send response to vpcd: {}", e);
-                        break;
-                    }
-                    // Disconnect after PowerOff to simulate card removal
-                    if is_power_off {
-                        info!("Disconnecting after PowerOff (card ejected)");
                         break;
                     }
                 }
@@ -166,11 +160,11 @@ impl VpcdClient {
         if len == 1 {
             // Control command - single byte
             let cmd = VpcdCtrlCommand::try_from(data[0])?;
-            info!("Received vpcd control command: {:?}", cmd);
+            debug!("Received vpcd control command: {:?}", cmd);
             Ok(Some(VpcdMessage::Control(cmd)))
         } else {
             // APDU - raw data, no command prefix
-            info!("Received vpcd APDU: {} bytes: {}", len, hex::encode(&data));
+            debug!("Received vpcd APDU: {} bytes: {}", len, hex::encode(&data));
             Ok(Some(VpcdMessage::Apdu(data)))
         }
     }
@@ -187,40 +181,35 @@ impl VpcdClient {
         stream.flush().await
             .map_err(|e| format!("Failed to flush: {}", e))?;
 
-        info!("Sent response to vpcd: {} bytes: {}", data.len(), hex::encode(data));
+        debug!("Sent response to vpcd: {} bytes", data.len());
 
         Ok(())
     }
 
     /// Handle a vpcd message (control command or APDU)
     async fn handle_message(&mut self, msg: VpcdMessage) -> Vec<u8> {
-        info!("vpcd: Handling message {:?} for reader {:?}", msg, self.reader_name);
+        debug!("vpcd: Handling message {:?} for reader {:?}", msg, self.reader_name);
         let result = match msg {
             VpcdMessage::Control(cmd) => match cmd {
                 VpcdCtrlCommand::PowerOff => {
-                    info!("vpcd: Power Off - will disconnect after response");
+                    debug!("vpcd: Power Off");
                     self.powered = false;
-                    vec![] // Empty response = success, then we'll disconnect
+                    vec![] // Empty response = success
                 }
                 VpcdCtrlCommand::PowerOn => {
-                    info!("vpcd: Power On - getting ATR from client");
+                    debug!("vpcd: Power On");
                     self.powered = true;
                     // Return ATR on power on
                     self.get_atr_from_client().await
                 }
                 VpcdCtrlCommand::Reset => {
-                    info!("vpcd: Reset - getting ATR from client");
+                    debug!("vpcd: Reset");
                     // Return ATR on reset
                     self.get_atr_from_client().await
                 }
                 VpcdCtrlCommand::GetAtr => {
-                    if self.powered {
-                        info!("vpcd: Get ATR - returning cached ATR");
-                        self.get_atr_from_client().await
-                    } else {
-                        info!("vpcd: Get ATR - card not powered, returning empty");
-                        vec![]
-                    }
+                    debug!("vpcd: Get ATR");
+                    self.get_atr_from_client().await
                 }
             }
             VpcdMessage::Apdu(apdu) => {
@@ -228,7 +217,7 @@ impl VpcdClient {
                 self.forward_apdu(&apdu).await
             }
         };
-        info!("vpcd: Message returned {} bytes: {}", result.len(), hex::encode(&result));
+        debug!("vpcd: Response {} bytes", result.len());
         result
     }
 
@@ -274,7 +263,7 @@ impl VpcdClient {
             }
         };
 
-        info!("get_atr_from_client: session={}, reader={}", session_id, reader_name);
+        debug!("get_atr_from_client: session={}, reader={}", session_id, reader_name);
 
         // First, check if we have a cached ATR from the session
         {
@@ -282,8 +271,7 @@ impl VpcdClient {
             if let Some(session) = sessions.get_session(&session_id) {
                 if let Some(reader_info) = session.readers.get(&reader_name) {
                     if !reader_info.atr.is_empty() {
-                        info!("Using cached ATR for reader {}: {} bytes: {}",
-                              reader_name, reader_info.atr.len(), hex::encode(&reader_info.atr));
+                        debug!("Using cached ATR: {} bytes", reader_info.atr.len());
                         self.atr = reader_info.atr.clone();
                         return self.atr.clone();
                     }
