@@ -309,18 +309,23 @@ sudo chmod 644 /etc/rsc-server/certs/ca.crt
 ### 4.2 Generera Server Certificate
 
 **På server:**
+
+> **VIKTIGT:** Servercertifikatet **måste** ha en Subject Alternative Name (SAN) extension
+> med servernamnet. Moderna TLS-bibliotek (inklusive rustls som används av rsc-client)
+> kräver SAN och ignorerar CN för serververifiering. Utan SAN får du "BadCertificate"-fel.
+
 ```bash
 # Generera server private key
 openssl genrsa -out /tmp/server.key 4096
 
 # Skapa Certificate Signing Request
-# VIKTIGT: CN måste matcha server hostname/IP
 openssl req -new \
     -key /tmp/server.key \
     -out /tmp/server.csr \
     -subj "/C=SE/ST=Stockholm/L=Stockholm/O=RemoteSmartcard/OU=Server/CN=your-server.example.com"
 
-# Signera med CA
+# Signera med CA - VIKTIGT: inkludera SAN med servernamnet!
+# Ersätt "your-server.example.com" med ditt faktiska servernamn/hostname
 openssl x509 -req \
     -in /tmp/server.csr \
     -CA /etc/rsc-server/certs/ca.crt \
@@ -328,7 +333,11 @@ openssl x509 -req \
     -CAcreateserial \
     -out /tmp/server.crt \
     -days 3650 \
-    -sha256
+    -sha256 \
+    -extfile <(echo "subjectAltName=DNS:your-server.example.com")
+
+# Om servern nås via flera namn eller IP, lägg till alla:
+# -extfile <(echo "subjectAltName=DNS:server.example.com,DNS:server,IP:192.168.1.100")
 
 # Flytta certifikat
 sudo mv /tmp/server.key /etc/rsc-server/certs/server.key
@@ -412,6 +421,12 @@ openssl verify -CAfile /etc/rsc-server/certs/ca.crt \
     /etc/rsc-server/certs/server.crt
 
 # Ska visa: /etc/rsc-server/certs/server.crt: OK
+
+# VIKTIGT: Verifiera att servercertifikatet har SAN (Subject Alternative Name)
+openssl x509 -in /etc/rsc-server/certs/server.crt -noout -ext subjectAltName
+
+# Ska visa något som: X509v3 Subject Alternative Name: DNS:your-server.example.com
+# Om detta är tomt eller saknas kommer rsc-client att misslyckas med "BadCertificate"!
 ```
 
 ---

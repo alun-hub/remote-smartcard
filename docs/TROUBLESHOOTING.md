@@ -113,6 +113,65 @@ openssl x509 -in /etc/rsc-server/certs/server.crt -text -noout | grep -A1 "Subje
 - **Expired certificate**: Regenerate certificates
 - **Self-signed without CA**: Add server cert to client's trusted certs
 
+### BadCertificate Error (Missing SAN)
+
+**Symptoms:**
+
+Server logs show:
+```
+DEBUG tonic::transport::server::incoming: Accept loop error. error=received fatal alert: BadCertificate
+```
+
+Client logs show:
+```
+DEBUG rustls::client::common: Attempting client auth
+WARN  Connection lost: Connection error: Failed to connect: transport error
+```
+
+OpenSSL test works fine but rsc-client fails to connect.
+
+**Cause:**
+
+The server certificate is missing a Subject Alternative Name (SAN) extension. Modern TLS libraries
+(including rustls used by rsc-client) require SAN for server verification and ignore the CN field.
+
+**Diagnostic:**
+
+```bash
+# Check if server certificate has SAN
+openssl x509 -in /etc/rsc-server/certs/server.crt -noout -ext subjectAltName
+
+# If this shows nothing or "No extensions", SAN is missing
+```
+
+**Solution:**
+
+Regenerate the server certificate with SAN:
+
+```bash
+# Create new CSR
+openssl req -new -key /etc/rsc-server/certs/server.key \
+    -out /tmp/server.csr \
+    -subj "/CN=your-server-hostname"
+
+# Sign with SAN extension (replace hostname with your actual server name)
+openssl x509 -req -in /tmp/server.csr \
+    -CA /etc/rsc-server/certs/ca.crt \
+    -CAkey /etc/rsc-server/certs/ca.key \
+    -CAcreateserial \
+    -out /etc/rsc-server/certs/server.crt \
+    -days 365 \
+    -extfile <(echo "subjectAltName=DNS:your-server-hostname")
+
+# Restart server
+sudo systemctl restart rsc-server
+```
+
+For multiple hostnames or IP addresses:
+```bash
+-extfile <(echo "subjectAltName=DNS:server.example.com,DNS:server,IP:192.168.1.100")
+```
+
 ### Reconnection Loop
 
 **Symptoms:**
@@ -341,6 +400,8 @@ rsc-client --version >> system-info.txt
 |-------|-------|----------|
 | "Connection refused" | Server not running | Start rsc-server |
 | "Certificate verify failed" | Wrong CA certificate | Use correct ca.crt |
+| "BadCertificate" (server log) | Server cert missing SAN | Regenerate cert with `-extfile <(echo "subjectAltName=DNS:hostname")` |
+| "transport error" after "Attempting client auth" | Server cert missing SAN | See "BadCertificate Error" section above |
 | "No such reader" | Reader not registered | Check client connection |
 | "Card not present" | Card removed or not detected | Insert card, check local pcscd |
 | "Session expired" | Heartbeat failure | Automatic reconnect should handle |
