@@ -208,6 +208,71 @@ free -h
 - **Server overloaded**: Check server resources, reduce connected clients
 - **Firewall timeouts**: Some firewalls drop idle connections; heartbeat should prevent this
 
+## Permission Issues
+
+### Access Denied for Non-Root Users (Server)
+
+**Symptoms:**
+```bash
+$ pcsc_scan
+SCardEstablishContext: Access denied.
+```
+
+This happens when a regular user (not root) tries to access the smartcard on the server.
+
+**Causes:**
+
+1. **Socket permissions**: The pcscd socket `/run/pcscd/pcscd.comm` is not accessible
+2. **Polkit policy**: SSH sessions are considered "inactive" and denied by default
+
+**Diagnostic:**
+
+```bash
+# Check socket permissions
+ls -la /run/pcscd/pcscd.comm
+
+# Check if user is in scard group
+groups
+
+# Check polkit policy
+cat /usr/share/polkit-1/actions/org.debian.pcsc-lite.policy
+```
+
+**Solution:**
+
+See SETUP.md section 9.3 "Tillåt Vanliga Användare att Komma Åt Smartcard" for full instructions.
+
+Quick summary:
+```bash
+# 1. Create group and add user
+sudo groupadd -r scard
+sudo usermod -aG scard $USER
+
+# 2. Configure socket permissions
+sudo mkdir -p /etc/systemd/system/pcscd.socket.d
+echo -e "[Socket]\nSocketGroup=scard\nSocketMode=0660" | sudo tee /etc/systemd/system/pcscd.socket.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl stop pcscd.service pcscd.socket
+sudo rm -f /run/pcscd/pcscd.comm
+sudo systemctl start pcscd.socket
+
+# 3. Configure polkit for SSH sessions
+sudo tee /etc/polkit-1/rules.d/50-pcscd.rules << 'EOF'
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+         action.id == "org.debian.pcsc-lite.access_card") &&
+        subject.isInGroup("scard")) {
+        return polkit.Result.YES;
+    }
+});
+EOF
+sudo systemctl restart polkit
+
+# 4. Re-login or use newgrp
+newgrp scard
+pcsc_scan
+```
+
 ## Smartcard Issues
 
 ### No Readers Found on Server
@@ -402,6 +467,7 @@ rsc-client --version >> system-info.txt
 | "Certificate verify failed" | Wrong CA certificate | Use correct ca.crt |
 | "BadCertificate" (server log) | Server cert missing SAN | Regenerate cert with `-extfile <(echo "subjectAltName=DNS:hostname")` |
 | "transport error" after "Attempting client auth" | Server cert missing SAN | See "BadCertificate Error" section above |
+| "SCardEstablishContext: Access denied" | Non-root user missing permissions | See "Access Denied for Non-Root Users" section |
 | "No such reader" | Reader not registered | Check client connection |
 | "Card not present" | Card removed or not detected | Insert card, check local pcscd |
 | "Session expired" | Heartbeat failure | Automatic reconnect should handle |

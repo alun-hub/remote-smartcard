@@ -802,7 +802,68 @@ INFO Connection lost, reconnecting...
 - [ ] Backup av config-filer
 - [ ] Dokumentera cert generation process
 
-### 9.3 Monitoring
+### 9.3 Tillåt Vanliga Användare att Komma Åt Smartcard (Server)
+
+Som standard kan endast root komma åt det virtuella smartkortet på servern. För att tillåta
+vanliga användare behöver du konfigurera både socket-permissions och polkit.
+
+**Steg 1: Skapa grupp och lägg till användare**
+```bash
+# Skapa grupp för smartcard-access
+sudo groupadd -r scard
+
+# Lägg till användare som behöver access
+sudo usermod -aG scard användarnamn
+```
+
+**Steg 2: Konfigurera pcscd socket permissions**
+```bash
+# Skapa override för pcscd.socket
+sudo mkdir -p /etc/systemd/system/pcscd.socket.d
+sudo tee /etc/systemd/system/pcscd.socket.d/override.conf << 'EOF'
+[Socket]
+SocketGroup=scard
+SocketMode=0660
+EOF
+
+# Ladda om systemd
+sudo systemctl daemon-reload
+
+# Stoppa och starta om socket (ta bort gammal socket)
+sudo systemctl stop pcscd.service pcscd.socket
+sudo rm -f /run/pcscd/pcscd.comm
+sudo systemctl start pcscd.socket
+```
+
+**Steg 3: Konfigurera polkit för SSH-sessioner**
+
+Ubuntu/Debian har polkit-regler som nekar "inaktiva" sessioner (t.ex. SSH).
+Skapa en regel som tillåter scard-gruppen:
+
+```bash
+sudo tee /etc/polkit-1/rules.d/50-pcscd.rules << 'EOF'
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+         action.id == "org.debian.pcsc-lite.access_card") &&
+        subject.isInGroup("scard")) {
+        return polkit.Result.YES;
+    }
+});
+EOF
+
+sudo systemctl restart polkit
+```
+
+**Steg 4: Verifiera**
+```bash
+# Logga ut och in igen (eller använd newgrp)
+newgrp scard
+
+# Testa
+pcsc_scan
+```
+
+### 9.4 Monitoring
 
 **Metrics att övervaka:**
 - Connection count
