@@ -38,11 +38,8 @@ impl CardConnectionManager {
             let reader_cstr = std::ffi::CString::new(reader_name)
                 .map_err(|e| ClientError::Config(format!("Invalid reader name: {}", e)))?;
 
-            let card = self.context.connect(
-                &reader_cstr,
-                ShareMode::Shared,
-                Protocols::ANY,
-            )?;
+            // Try to connect with retry for busy card
+            let card = self.connect_with_retry(&reader_cstr)?;
 
             self.connections.insert(reader_name.to_string(), card);
         } else {
@@ -50,6 +47,49 @@ impl CardConnectionManager {
         }
 
         Ok(self.connections.get(reader_name).unwrap())
+    }
+
+    /// Connect to card with retry logic for busy/sharing violation errors
+    fn connect_with_retry(&self, reader_cstr: &std::ffi::CString) -> Result<Card> {
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.context.connect(reader_cstr, ShareMode::Shared, Protocols::ANY) {
+                Ok(card) => return Ok(card),
+                Err(pcsc::Error::SharingViolation) => {
+                    if attempt < MAX_RETRIES {
+                        warn!(
+                            "Card is busy (attempt {}/{}), retrying in {}ms...",
+                            attempt, MAX_RETRIES, RETRY_DELAY_MS
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                    } else {
+                        warn!("Card is busy, max retries reached");
+                        return Err(ClientError::Smartcard(
+                            "Card is busy (sharing violation). Another application may be using it.".to_string()
+                        ));
+                    }
+                }
+                Err(pcsc::Error::ReaderUnavailable) => {
+                    if attempt < MAX_RETRIES {
+                        warn!(
+                            "Reader unavailable (attempt {}/{}), retrying in {}ms...",
+                            attempt, MAX_RETRIES, RETRY_DELAY_MS
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                    } else {
+                        return Err(ClientError::Smartcard(
+                            "Reader unavailable after retries".to_string()
+                        ));
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        // Should not reach here, but just in case
+        Err(ClientError::Smartcard("Connection failed".to_string()))
     }
 
     fn disconnect(&mut self, reader_name: &str) {

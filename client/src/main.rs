@@ -15,6 +15,10 @@ mod error;
 mod grpc_client;
 mod pcsc_reader;
 
+#[cfg(windows)]
+mod windows_cert;
+
+use config::ClientConfig;
 use error::{ClientError, Result};
 use grpc_client::GrpcClient;
 
@@ -22,10 +26,14 @@ use grpc_client::GrpcClient;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "rsc-client")]
 #[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path to configuration file
+pub struct Args {
+    /// Path to configuration file (TOML format)
     #[arg(short, long)]
     config: Option<PathBuf>,
+
+    /// Generate example configuration file
+    #[arg(long)]
+    generate_config: bool,
 
     /// Override log level
     #[arg(short, long)]
@@ -55,6 +63,16 @@ struct Args {
     /// Server name for TLS verification (SNI)
     #[arg(long)]
     tls_server_name: Option<String>,
+
+    /// Client certificate thumbprint in Windows Certificate Store (Windows only)
+    #[cfg(windows)]
+    #[arg(long)]
+    tls_windows_cert: Option<String>,
+
+    /// List available client certificates in Windows Certificate Store (Windows only)
+    #[cfg(windows)]
+    #[arg(long)]
+    list_windows_certs: bool,
 
     // Reconnection options
     /// Initial reconnection delay in seconds
@@ -116,27 +134,38 @@ impl ReconnectConfig {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Initialize logging
-    let log_level = args.log_level.clone().unwrap_or_else(|| "info".to_string());
-    let log_config = rsc_common::config::LoggingConfig {
-        level: log_level,
-        file: None,
-        stdout: true,
-        json: false,
+    // Handle special commands first
+    if args.generate_config {
+        print!("{}", config::example_config());
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    if args.list_windows_certs {
+        // Initialize minimal logging for this command
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .init();
+        return windows_cert::print_certificate_list();
+    }
+
+    // Load configuration
+    let mut cfg = if let Some(config_path) = &args.config {
+        ClientConfig::load(config_path)?
+    } else {
+        ClientConfig::default()
     };
-    rsc_common::logging::init_logging(&log_config)?;
+
+    // Merge CLI arguments (CLI takes precedence)
+    cfg.merge_cli_args(&args);
+
+    // Initialize logging
+    rsc_common::logging::init_logging(&cfg.logging)?;
 
     info!("Starting rsc-client v{}", env!("CARGO_PKG_VERSION"));
 
-    // Get client ID
-    let client_id = args.client_id.clone().unwrap_or_else(|| {
-        hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown-client".to_string())
-    });
-
-    // Build TLS configuration if CA is provided
-    let tls_config = build_tls_config(&args)?;
+    // Build TLS configuration
+    let tls_config = build_tls_config(&cfg)?;
 
     // Setup shutdown signal
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -151,14 +180,19 @@ async fn main() -> Result<()> {
 
     // Reconnection configuration
     let mut reconnect_config = ReconnectConfig::new(
-        Duration::from_secs(args.reconnect_delay),
-        Duration::from_secs(args.reconnect_max_delay),
-        !args.no_reconnect,
+        Duration::from_secs(cfg.client.reconnect_delay),
+        Duration::from_secs(cfg.client.reconnect_max_delay),
+        !cfg.client.no_reconnect,
     );
 
     // Main connection loop
     loop {
-        match run_connection(&args.server, &client_id, tls_config.clone(), shutdown_rx.clone()).await {
+        match run_connection(
+            &cfg.server.url,
+            &cfg.client.client_id,
+            tls_config.clone(),
+            shutdown_rx.clone(),
+        ).await {
             Ok(()) => {
                 // Clean shutdown requested
                 info!("Shutting down...");
@@ -201,25 +235,48 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Build TLS configuration from args
-fn build_tls_config(args: &Args) -> Result<Option<ClientTlsConfig>> {
-    if let Some(ca_path) = &args.tls_ca {
-        let mut config = rsc_common::tls::ClientTlsConfig::new(ca_path);
+/// Build TLS configuration from config
+fn build_tls_config(cfg: &ClientConfig) -> Result<Option<ClientTlsConfig>> {
+    let ca_path = match &cfg.tls.ca_cert {
+        Some(path) => path,
+        None => return Ok(None), // No TLS
+    };
 
-        if let Some(server_name) = &args.tls_server_name {
-            config = config.with_server_name(server_name);
-        }
+    let mut tls_config = rsc_common::tls::ClientTlsConfig::new(ca_path);
 
-        if let (Some(cert_path), Some(key_path)) = (&args.tls_cert, &args.tls_key) {
-            config = config.with_client_cert(cert_path, key_path);
-            info!("mTLS enabled: using client certificate");
-        }
-
-        Ok(Some(rsc_common::tls::create_client_tls_config(&config)
-            .map_err(|e| ClientError::Tls(e.to_string()))?))
-    } else {
-        Ok(None)
+    if let Some(server_name) = &cfg.tls.server_name {
+        tls_config = tls_config.with_server_name(server_name);
     }
+
+    // Check for Windows cert store (takes priority)
+    #[cfg(windows)]
+    if let Some(thumbprint) = &cfg.tls.windows_cert_thumbprint {
+        info!("mTLS enabled: using certificate from Windows store");
+        let identity = windows_cert::build_tls_identity(thumbprint)?;
+
+        let ca_cert = std::fs::read_to_string(ca_path)
+            .map_err(|e| ClientError::Tls(format!("Failed to read CA certificate: {}", e)))?;
+        let ca = tonic::transport::Certificate::from_pem(ca_cert);
+
+        let mut tonic_tls = tonic::transport::ClientTlsConfig::new()
+            .ca_certificate(ca)
+            .identity(identity);
+
+        if let Some(name) = &cfg.tls.server_name {
+            tonic_tls = tonic_tls.domain_name(name);
+        }
+
+        return Ok(Some(tonic_tls));
+    }
+
+    // Fall back to file-based certificates
+    if let (Some(cert_path), Some(key_path)) = (&cfg.tls.client_cert, &cfg.tls.client_key) {
+        tls_config = tls_config.with_client_cert(cert_path, key_path);
+        info!("mTLS enabled: using client certificate from file");
+    }
+
+    Ok(Some(rsc_common::tls::create_client_tls_config(&tls_config)
+        .map_err(|e| ClientError::Tls(e.to_string()))?))
 }
 
 /// Run a single connection lifecycle

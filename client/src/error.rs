@@ -13,6 +13,10 @@ pub enum ClientError {
     #[error("PC/SC error: {0}")]
     Pcsc(#[from] pcsc::Error),
 
+    /// Smartcard-specific error (higher-level than PC/SC)
+    #[error("Smartcard error: {0}")]
+    Smartcard(String),
+
     /// gRPC/connection error
     #[error("Connection error: {0}")]
     Connection(String),

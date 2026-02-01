@@ -33,7 +33,7 @@ pcsc = "2.8"
 
 # Config and CLI
 serde.workspace = true
-serde_yaml.workspace = true
+toml = "0.8"
 clap.workspace = true
 
 # Logging
@@ -48,6 +48,11 @@ thiserror.workspace = true
 bytes.workspace = true
 hex.workspace = true
 hostname.workspace = true
+base64 = "0.22"
+
+# Windows Certificate Store support (Windows only)
+[target.'cfg(windows)'.dependencies]
+schannel = "0.1"
 
 [build-dependencies]
 tonic-build.workspace = true
