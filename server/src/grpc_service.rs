@@ -122,8 +122,9 @@ impl RemoteSmartcard for SmartcardService {
 
         info!("Reader '{}' registered as '{}'", req.reader_name, virtual_reader_name);
 
-        // Start vpcd client for new readers if auto_vpcd is enabled
-        if is_new_reader && self.auto_vpcd {
+        // Start vpcd client for new readers with cards if auto_vpcd is enabled
+        // Only start vpcd for readers that actually have a card present
+        if is_new_reader && self.auto_vpcd && req.card_present {
             let session_id = req.session_id.clone();
             let reader_name = req.reader_name.clone();
             let vpcd_host = self.vpcd_host.clone();
@@ -133,7 +134,7 @@ impl RemoteSmartcard for SmartcardService {
             // Drop the lock before spawning
             drop(sessions);
 
-            info!("Starting vpcd client for reader '{}' -> {}:{}", reader_name, vpcd_host, vpcd_port);
+            info!("Starting vpcd client for reader '{}' (card present) -> {}:{}", reader_name, vpcd_host, vpcd_port);
             if let Err(e) = vpcd_manager.start_client(
                 session_id,
                 reader_name,
@@ -142,6 +143,8 @@ impl RemoteSmartcard for SmartcardService {
             ).await {
                 error!("Failed to start vpcd client: {}", e);
             }
+        } else if is_new_reader && self.auto_vpcd && !req.card_present {
+            info!("Skipping vpcd client for reader '{}' (no card present)", req.reader_name);
         }
 
         let response = UpdateReaderInfoResponse {
